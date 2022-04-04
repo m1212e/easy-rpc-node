@@ -1,0 +1,20 @@
+{
+  "name": "erpc-node-http-server",
+  "version": "1.0.0",
+  "description": "The node http server for Easy-RPC",
+  "main": "dist/main.js",
+  "types": "dist/main.d.ts",
+  "scripts": {
+    "dev": "npm run build && npm run start",
+    "start": "node dist/main.js",
+    "ts-types": "tsc --emitDeclarationOnly --outDir dist",
+    "build": "(rm -r dist || del dist /s /q) && node ./esbuild.js && npm run ts-types"
+  },
+  "author": "m1212e",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^17.0.23",
+    "esbuild": "^0.14.31",
+    "typescript": "^4.6.3"
+  }
+}
