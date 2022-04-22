@@ -16,12 +16,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/m1212e/erpc-node.git"
+    "url": "git+https://github.com/m1212e/easy-rpc-node.git"
   },
   "author": "m1212e",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/m1212e/erpc-node/issues"
+    "url": "https://github.com/m1212e/easy-rpc-node/issues"
   },
-  "homepage": "https://github.com/m1212e/erpc-node#readme"
+  "homepage": "https://github.com/m1212e/easy-rpc-node#readme"
 }
