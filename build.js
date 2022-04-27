@@ -9,6 +9,7 @@ esbuild.buildSync({
         minify: true,
         platform: 'node',
         target: ['node16.14'],
+        external: ['ws'],
 });
 
 

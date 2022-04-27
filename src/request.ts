@@ -1,17 +1,17 @@
 import { request as secureRequest } from "https";
 import { ClientRequest, request } from "http";
+import { TargetOptions } from "./Options";
 
 export async function makeHTTPRequest(
-  adress: string,
-  port: number,
+  options: TargetOptions,
   methodIdentifier: string,
   parameters?: any
 ): Promise<any> {
   const body = JSON.stringify(parameters);
 
-  const options = {
-    hostname: adress,
-    port,
+  const requestOptions = {
+    hostname: options.address,
+    port: options.port,
     path: methodIdentifier,
     method: "POST",
     headers: {
@@ -40,10 +40,10 @@ export async function makeHTTPRequest(
 
     let req: ClientRequest;
 
-    if (adress.includes("https")) {
-      req = secureRequest(options, handler);
+    if (options.address.startsWith("https")) {
+      req = secureRequest(requestOptions, handler);
     } else {
-      req = request(options, handler);
+      req = request(requestOptions, handler);
     }
 
     req.on("error", (error) => {

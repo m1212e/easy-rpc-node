@@ -1,16 +1,18 @@
 {
   "name": "@easy-rpc/node",
-  "version": "0.0.13",
+  "version": "0.0.38",
   "description": "Node client for easy-rpc",
   "main": "main.js",
   "types": "main.d.ts",
   "module": "main.js",
   "scripts": {
     "ts-types": "tsc --emitDeclarationOnly --outDir dist",
-    "build": "(rm -r dist || del dist /s /q) && node ./build.js && npm run ts-types"
+    "build": "(rm -r dist || del dist /s /q) && node ./build.js && npm run ts-types",
+    "pub": "npm run build && cd dist && npm publish"
   },
   "devDependencies": {
-    "@types/node": "^17.0.23",
+    "@types/node": "^17.0.25",
+    "@types/ws": "^8.5.3",
     "esbuild": "^0.14.31",
     "typescript": "^4.6.3"
   },
@@ -23,5 +25,8 @@
   "bugs": {
     "url": "https://github.com/m1212e/easy-rpc-node/issues"
   },
-  "homepage": "https://github.com/m1212e/easy-rpc-node#readme"
+  "homepage": "https://github.com/m1212e/easy-rpc-node#readme",
+  "dependencies": {
+    "ws": "^8.5.0"
+  }
 }
