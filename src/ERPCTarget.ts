@@ -3,6 +3,7 @@ import { TargetOptions } from "./Options";
 import { makeHTTPRequest } from "./request";
 
 //TODO do all sorts of error handling
+//TODO request timeout
 
 /**
  * Abstract class to initialize a remote rpc target. This abstract class helps performing requests and parsing responses from the corresponding server.
