@@ -9,8 +9,8 @@ import { makeHTTPRequest } from "./request";
  * Abstract class to initialize a remote rpc target. This abstract class helps performing requests and parsing responses from the corresponding server.
  */
 export abstract class ERPCTarget {
-  readonly options: TargetOptions;
-  readonly types: ("http-server" | "browser")[];
+  private options: TargetOptions;
+  private types: ("http-server" | "browser")[];
   private socket: WebSocket;
   private requestID = 0;
   private requests: {
@@ -29,7 +29,7 @@ export abstract class ERPCTarget {
     this.types = types;
   }
 
-  async call(methodIdentifier: string, parameters: any): Promise<any> {
+  private async call(methodIdentifier: string, parameters: any): Promise<any> {
     //TODO add checks for ensuring correct parameters, their types, array lengths, etc.
     if (this.types.find((e) => e == "http-server")) {
       return makeHTTPRequest(this.options, methodIdentifier, parameters);
@@ -53,7 +53,7 @@ export abstract class ERPCTarget {
    * This method is used by ERPC internally and is not meant for manual use. It sets the socket object of this target, which is the used to process requests to a webbrowser.
    * @param socket The socket object to set
    */
-  setERPCSocket(socket: WebSocket) {
+  private setERPCSocket(socket: WebSocket) {
     this.socket = socket;
     socket.addEventListener("message", ({ data }) => {
       const parsedData = JSON.parse(data.toString());

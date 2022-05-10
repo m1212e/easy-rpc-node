@@ -1,6 +1,6 @@
 {
   "name": "@easy-rpc/node",
-  "version": "0.0.38",
+  "version": "0.0.40",
   "description": "Node client for easy-rpc",
   "main": "main.js",
   "types": "main.d.ts",

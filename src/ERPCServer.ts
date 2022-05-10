@@ -7,10 +7,10 @@ import { ServerOptions } from "./Options";
  * Abstract class to initialize a rpc server.
  */
 export abstract class ERPCServer {
-  readonly options: ServerOptions;
-  readonly types: ("http-server" | "browser")[];
-  readonly enableSockets: boolean;
-  readonly role: string;
+  private options: ServerOptions;
+  private types: ("http-server" | "browser")[];
+  private enableSockets: boolean;
+  private role: string;
 
   private connectedSockets: { role: string; client: WebSocket }[] = [];
   private connectionCallbacks: (({
@@ -76,7 +76,7 @@ export abstract class ERPCServer {
   /**
     This method is used by easy-rpc internally and is not intended for manual use. It can be used to register a function on the server dynamically.
   */
-  registerERPCCallbackFunction(func, identifier) {
+  private registerERPCCallbackFunction(func, identifier) {
     this.mappedCallbacks[identifier] = func;
   }
 
@@ -146,7 +146,7 @@ export abstract class ERPCServer {
     });
   }
 
-  onSocketConnection(callback: ({ role: string, client: WebSocket }) => void) {
+  private onSocketConnection(callback: ({ role: string, client: WebSocket }) => void) {
     this.connectionCallbacks.push(callback);
     this.connectedSockets.forEach((s) => callback(s));
   }
