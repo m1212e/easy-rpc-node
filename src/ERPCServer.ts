@@ -77,6 +77,9 @@ export abstract class ERPCServer {
     This method is used by easy-rpc internally and is not intended for manual use. It can be used to register a function on the server dynamically.
   */
   private registerERPCCallbackFunction(func, identifier) {
+    if (!identifier.startsWith("/")) {
+      identifier = "/" + identifier;
+    }
     this.mappedCallbacks[identifier] = func;
   }
 

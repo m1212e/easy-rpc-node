@@ -9,6 +9,10 @@ export async function makeHTTPRequest(
 ): Promise<any> {
   const body = JSON.stringify(parameters);
 
+  if (!methodIdentifier.startsWith("/")) {
+    methodIdentifier = "/" + methodIdentifier;
+  }
+
   const requestOptions = {
     hostname: options.address,
     port: options.port,
