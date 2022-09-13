@@ -1,32 +1,37 @@
 {
   "name": "@easy-rpc/node",
-  "version": "0.0.42",
-  "description": "Node client for easy-rpc",
-  "main": "main.js",
-  "types": "main.d.ts",
-  "module": "main.js",
-  "scripts": {
-    "ts-types": "tsc --emitDeclarationOnly --outDir dist",
-    "build": "(rm -r dist || del dist /s /q) && node ./build.js && npm run ts-types",
-    "pub": "npm run build && cd dist && npm publish"
+  "version": "0.0.0",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "name": "node",
+    "triples": {
+      "additional": [
+        "aarch64-apple-darwin",
+        "aarch64-linux-android",
+        "aarch64-unknown-linux-gnu",
+        "aarch64-unknown-linux-musl",
+        "aarch64-pc-windows-msvc",
+        "armv7-unknown-linux-gnueabihf",
+        "x86_64-unknown-linux-musl"
+      ]
+    }
   },
-  "devDependencies": {
-    "@types/node": "^17.0.25",
-    "@types/ws": "^8.5.3",
-    "esbuild": "^0.14.31",
-    "typescript": "^4.6.3"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/m1212e/easy-rpc-node.git"
-  },
-  "author": "m1212e",
   "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/m1212e/easy-rpc-node/issues"
+  "devDependencies": {
+    "@napi-rs/cli": "^2.11.4",
+    "ava": "^4.3.0"
   },
-  "homepage": "https://github.com/m1212e/easy-rpc-node#readme",
-  "dependencies": {
-    "ws": "^8.5.0"
-  }
+  "engines": {
+    "node": ">= 10"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "ava",
+    "version": "napi version"
+  },
+  "packageManager": "yarn@3.2.3"
 }
