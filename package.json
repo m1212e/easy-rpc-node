@@ -17,7 +17,6 @@
       ]
     }
   },
-  "license": "MIT",
   "devDependencies": {
     "@napi-rs/cli": "^2.11.4",
     "ava": "^4.3.0"

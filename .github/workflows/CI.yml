@@ -2,16 +2,23 @@ name: CI
 env:
   DEBUG: napi:*
   APP_NAME: node
-  MACOSX_DEPLOYMENT_TARGET: "10.13"
-
-on:
-  release:
-    types: [created]
+  MACOSX_DEPLOYMENT_TARGET: '10.13'
+'on':
+  push:
     branches:
       - main
-
+    tags-ignore:
+      - '**'
+    paths-ignore:
+      - '**/*.md'
+      - LICENSE
+      - '**/*.gitignore'
+      - .editorconfig
+      - docs/**
+  pull_request: null
 jobs:
   build:
+    if: '!contains(github.event.head_commit.message, ''skip ci'')'
     strategy:
       fail-fast: false
       matrix:
@@ -138,7 +145,7 @@ jobs:
         if: ${{ matrix.settings.docker }}
         with:
           image: ${{ matrix.settings.docker }}
-          options: "--user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index -v ${{ github.workspace }}:/build -w /build"
+          options: '--user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index -v ${{ github.workspace }}:/build -w /build'
           run: ${{ matrix.settings.build }}
       - name: Build
         run: ${{ matrix.settings.build }}
@@ -161,9 +168,9 @@ jobs:
           - host: windows-latest
             target: x86_64-pc-windows-msvc
         node:
-          - "14"
-          - "16"
-          - "18"
+          - '14'
+          - '16'
+          - '18'
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v3
@@ -198,9 +205,9 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - "14"
-          - "16"
-          - "18"
+          - '14'
+          - '16'
+          - '18'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -235,9 +242,9 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - "14"
-          - "16"
-          - "18"
+          - '14'
+          - '16'
+          - '18'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -274,9 +281,9 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - "14"
-          - "16"
-          - "18"
+          - '14'
+          - '16'
+          - '18'
     runs-on: ubuntu-latest
     steps:
       - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
@@ -303,7 +310,7 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: ghcr.io/napi-rs/napi-rs/nodejs:aarch64-${{ matrix.node }}
-          options: "-v ${{ github.workspace }}:/build -w /build"
+          options: '-v ${{ github.workspace }}:/build -w /build'
           run: |
             set -e
             yarn test
@@ -338,7 +345,7 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: multiarch/alpine:aarch64-latest-stable
-          options: "-v ${{ github.workspace }}:/build -w /build"
+          options: '-v ${{ github.workspace }}:/build -w /build'
           run: |
             set -e
             apk add nodejs npm yarn
@@ -351,9 +358,9 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - "14"
-          - "16"
-          - "18"
+          - '14'
+          - '16'
+          - '18'
     runs-on: ubuntu-latest
     steps:
       - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
@@ -379,7 +386,7 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: ghcr.io/napi-rs/napi-rs/nodejs:armhf-${{ matrix.node }}
-          options: "-v ${{ github.workspace }}:/build -w /build"
+          options: '-v ${{ github.workspace }}:/build -w /build'
           run: |
             set -e
             yarn test
@@ -420,8 +427,17 @@ jobs:
         shell: bash
       - name: Publish
         run: |
-          echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
-          npm publish --access public
+          if git log -1 --pretty=%B | grep "^[0-9]\+\.[0-9]\+\.[0-9]\+$";
+          then
+            echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+            npm publish --access public
+          elif git log -1 --pretty=%B | grep "^[0-9]\+\.[0-9]\+\.[0-9]\+";
+          then
+            echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+            npm publish --tag next --access public
+          else
+            echo "Not a release, skipping publish"
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
