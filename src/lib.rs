@@ -1,11 +1,9 @@
 #![deny(clippy::all)]
 
-use std::sync::Arc;
-
 use napi::{
-  bindgen_prelude::Promise, Env, Error, JsFunction, JsObject, JsString, JsUnknown, NapiRaw,
+  bindgen_prelude::{FromNapiValue, Promise},
+  Env, JsFunction, JsUnknown, NapiRaw,
 };
-use serde_json::json;
 use tokio::sync::oneshot;
 
 mod server;
@@ -54,7 +52,7 @@ impl ERPCServer {
       0,
       |ctx: threadsafe_function::ThreadSafeCallContext<(
         Vec<serde_json::Value>,
-        oneshot::Sender<Result<String, String>>,
+        oneshot::Sender<String>,
       )>| {
         let args = ctx
           .value
@@ -63,26 +61,43 @@ impl ERPCServer {
           .map(|v| ctx.env.to_js_value(v))
           .collect::<Result<Vec<JsUnknown>, napi::Error>>()?;
 
-        let response = ctx.callback.call(None, &args);
+        let response = ctx.callback.call(None, &args)?;
 
-        let result = ctx.value.1.send(match response {
-          Ok(v) => {
-            let v: Result<serde_json::Value, Error> = ctx.env.from_js_value(v);
-            match v {
-              Ok(v) => match serde_json::to_string(&v) {
-                Ok(v) => Ok(v),
-                Err(err) => Err(format!("Serialization error(2): {err}")),
+        // let (deferred, promise) = ctx.env.create_deferred()?;
+
+        let response = if response.is_promise()? {
+          unsafe {
+            let prm: Promise<JsUnknown> = Promise::from_napi_value(ctx.env.raw(), response.raw())?;
+
+            // *mut napi_env__` cannot be sent between threads safely
+            // within `JsUnknown`, the trait `Send` is not implemented for `*mut napi_env__
+            let res = ctx.env.execute_tokio_future(
+              async move {
+                // let res = prm.await?;
+                println!("A");
+                Ok("hello from the future")
               },
-              Err(err) => Err(format!("Serialization error(1): {err}")),
-            }
-          }
-          Err(err) => Err(format!("{:#?}", err)),
-        });
+              |&mut env, data| {
+                println!("B");
+                Ok(data)
+              },
+            );
 
-        match result {
+            // blocks forever
+            // tokio::runtime::Runtime::new()?.block_on(prm)?
+            response
+          }
+        } else {
+          response
+        };
+
+        let response: serde_json::Value = ctx.env.from_js_value(response)?;
+        let response = serde_json::to_string(&response)?;
+        match ctx.value.1.send(response) {
           Ok(_) => {}
           Err(_) => eprintln!("Could not send on oneshot"),
-        }
+        };
+
         Ok(())
       },
     ) {
@@ -111,18 +126,22 @@ impl ERPCServer {
           },
         };
 
-        let (sender, reciever) = oneshot::channel::<Result<String, String>>();
+        let (sender, reciever) = oneshot::channel::<String>();
         let r = tsf.call(
           (val, sender),
           threadsafe_function::ThreadsafeFunctionCallMode::Blocking,
         );
 
+        match r {
+          napi::Status::Ok => {}
+          _ => {
+            return Box::pin(async move { Err(format!("Threadsafe function status not ok: {r}")) });
+          }
+        }
+
         Box::pin(async {
           match reciever.await {
-            Ok(v) => match v {
-              Ok(v) => Ok(v),
-              Err(err) => Err(format!("Handler returned error: {err}")),
-            },
+            Ok(v) => Ok(v),
             Err(err) => Err(format!("Recv Error in handler result oneshot: {err}")),
           }
         })

@@ -196,3 +196,5 @@ Cargo.lock
 
 *.node
 old
+index.js
+index.d.ts

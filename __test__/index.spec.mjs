@@ -1,8 +1,10 @@
 import test from 'ava'
+import {ERPCServer} from '../index.js'
 
-import { sum } from '../index.js'
+test('create erpc server', (t) => {
 
-test('sum from native', (t) => {
-  
-  t.is(sum(1, 2), 3)  
+  const s = new ERPCServer({
+    port: 9988,
+    allowedCorsOrigins: ["*"]
+  }, true, "role");
 })

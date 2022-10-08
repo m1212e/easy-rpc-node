@@ -8,8 +8,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
-napi = { version = "2.7", default-features = false, features = ["napi4", "serde-json", "async"] }
-napi-derive = "2.7"
+napi = { version = "2.10", default-features = false, features = ["napi4", "serde-json", "async"] }
+napi-derive = "2.9"
 tokio = { version = "1", features = ["full"] }
 warp = "0.3"
 serde_json = "1.0"
