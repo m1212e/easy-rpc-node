@@ -69,23 +69,15 @@ impl ERPCServer {
           unsafe {
             let prm: Promise<JsUnknown> = Promise::from_napi_value(ctx.env.raw(), response.raw())?;
 
+            // blocks forever
+            tokio::runtime::Runtime::new()?.block_on(prm)?
+            
             // *mut napi_env__` cannot be sent between threads safely
             // within `JsUnknown`, the trait `Send` is not implemented for `*mut napi_env__
-            let res = ctx.env.execute_tokio_future(
-              async move {
-                // let res = prm.await?;
-                println!("A");
-                Ok("hello from the future")
-              },
-              |&mut env, data| {
-                println!("B");
-                Ok(data)
-              },
-            );
-
-            // blocks forever
-            // tokio::runtime::Runtime::new()?.block_on(prm)?
-            response
+            // let res = ctx.env.execute_tokio_future(
+            //   prm,
+            //   |&mut env, data| Ok(data)
+            // );
           }
         } else {
           response
