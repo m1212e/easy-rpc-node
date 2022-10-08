@@ -63,8 +63,6 @@ impl ERPCServer {
 
         let response = ctx.callback.call(None, &args)?;
 
-        // let (deferred, promise) = ctx.env.create_deferred()?;
-
         let response = if response.is_promise()? {
           unsafe {
             let prm: Promise<JsUnknown> = Promise::from_napi_value(ctx.env.raw(), response.raw())?;
