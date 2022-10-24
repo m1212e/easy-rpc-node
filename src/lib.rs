@@ -1,12 +1,16 @@
 #![deny(clippy::all)]
 
+//TODO: remove unwraps
+
+use std::sync::{Mutex, Arc};
+
 use napi::{
   bindgen_prelude::{FromNapiValue, Promise},
   Env, JsFunction, JsUnknown, NapiRaw,
 };
 use tokio::sync::oneshot;
 
-mod server;
+mod erpc;
 mod threadsafe_function;
 
 #[macro_use]
@@ -21,7 +25,7 @@ pub struct ServerOptions {
 #[napi]
 pub struct ERPCServer {
   options: ServerOptions,
-  server: server::ERPCServer,
+  server: erpc::server::ERPCServer,
 }
 
 #[napi]
@@ -35,7 +39,7 @@ impl ERPCServer {
   ) -> Self {
     ERPCServer {
       options,
-      server: server::ERPCServer::new(),
+      server: erpc::server::ERPCServer::new(),
     }
   }
 
@@ -63,29 +67,18 @@ impl ERPCServer {
 
         let response = ctx.callback.call(None, &args)?;
 
-        let response = if response.is_promise()? {
+        if response.is_promise()? {
           unsafe {
-            let prm: Promise<JsUnknown> = Promise::from_napi_value(ctx.env.raw(), response.raw())?;
-
-            // blocks forever
-            tokio::runtime::Runtime::new()?.block_on(prm)?
-            
-            // *mut napi_env__` cannot be sent between threads safely
-            // within `JsUnknown`, the trait `Send` is not implemented for `*mut napi_env__
-            // let res = ctx.env.execute_tokio_future(
-            //   prm,
-            //   |&mut env, data| Ok(data)
-            // );
+            // let prm: Promise<JsUnknown> = Promise::from_napi_value(ctx.env.raw(), response.raw())?;
+            panic!("Async handlers are not supported yet!");
           }
         } else {
-          response
-        };
-
-        let response: serde_json::Value = ctx.env.from_js_value(response)?;
-        let response = serde_json::to_string(&response)?;
-        match ctx.value.1.send(response) {
-          Ok(_) => {}
-          Err(_) => eprintln!("Could not send on oneshot"),
+          let response: serde_json::Value = ctx.env.from_js_value(response)?;
+          let response = serde_json::to_string(&response)?;
+          match ctx.value.1.send(response) {
+            Ok(_) => {}
+            Err(_) => eprintln!("Could not send on oneshot"),
+          };
         };
 
         Ok(())
