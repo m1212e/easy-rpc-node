@@ -13,19 +13,44 @@ use warp::{
   Filter, Future,
 };
 
+use serde::{Deserialize, Serialize};
+
 type Handler = Box<
-  dyn Fn(Bytes) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + Sync>>
+  dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + Sync>>
     + Send
     + Sync,
 >;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Socket {
-  pub send: mpsc::UnboundedSender<String>,
-  pub recieve: flume::Receiver<warp::ws::Message>,
+  pub send: mpsc::UnboundedSender<SocketMessage>,
+  pub recieve: flume::Receiver<SocketMessage>,
   pub role: String,
 }
 
+//TODO: check if Strings are the best way to pass the body data around
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SocketRequest {
+  pub id: String,
+  pub method_identifier: String,
+  pub body: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SocketResponse {
+  pub id: String,
+  pub body: Option<String>,
+  pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum SocketMessage {
+  Request(SocketRequest),
+  Response(SocketResponse),
+}
+
+//TODO: check where rwlock/mutex is necessary
 pub struct ERPCServer {
   /**
    * The port the server runs on
@@ -46,7 +71,7 @@ pub struct ERPCServer {
   /**
    * Websockets which are currently connected to this server
    */
-  acitve_sockets: Arc<RwLock<Vec<Socket>>>,
+  active_sockets: Arc<RwLock<Vec<Socket>>>,
 }
 
 impl ERPCServer {
@@ -55,8 +80,8 @@ impl ERPCServer {
       handlers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
       shutdown_signal: None,
       socket_connected_callbacks: Arc::new(RwLock::new(Vec::new())),
-      acitve_sockets: Arc::new(RwLock::new(Vec::new())),
-      port
+      active_sockets: Arc::new(RwLock::new(Vec::new())),
+      port,
     };
   }
 
@@ -71,120 +96,30 @@ impl ERPCServer {
   }
 
   pub async fn run(&mut self) -> Result<(), String> {
-    let active_websockets = self.acitve_sockets.clone();
-    let connection_callbacks = self.socket_connected_callbacks.clone();
+    let active_sockets = self.active_sockets.clone();
+    let socket_connected_callbacks = self.socket_connected_callbacks.clone();
+    let handlers = self.handlers.clone();
 
     // handles ws connections which are established with this server to call endpoints on the connected client
-    let socket_handler =
-      warp::path!("ws" / String)
-        .and(warp::ws())
-        .and_then(move |role: String, ws: warp::ws::Ws| {
-          let active_websockets = active_websockets.clone();
-          let connection_callbacks = connection_callbacks.clone();
-          async move {
-            ws.on_upgrade(|socket| async move {
-              let (mut sender, mut reciever) = socket.split();
-              // broadcast for incoming ws messages
-              let (incoming_sender, incoming_reciever) = flume::unbounded::<warp::ws::Message>();
-              // mpsc for outgoing ws messages
-              let (outgoing_sender, mut outgoing_reciever) = mpsc::unbounded_channel::<String>();
+    let socket_handler = warp::path!("ws" / String)
+      .and(warp::ws())
+      .and_then(move |role, ws| {
+        let active_sockets = active_sockets.clone();
+        let socket_connected_callbacks = socket_connected_callbacks.clone();
 
-              tokio::spawn(async move {
-                while let Some(message) = reciever.next().await {
-                  incoming_sender
-                    .send(match message {
-                      Ok(v) => v,
-                      Err(err) => {
-                        eprintln!("Websocket message error: {err}");
-                        return;
-                      }
-                    })
-                    .unwrap();
-                }
-              });
-
-              tokio::spawn(async move {
-                while let Some(message) = outgoing_reciever.recv().await {
-                  sender.send(warp::ws::Message::text(message)).await.unwrap();
-                }
-              });
-
-              let mut active_websockets = match active_websockets.write() {
-                Ok(v) => v,
-                Err(err) => {
-                  println!("PoisonError in active_websockets lock: {err}");
-                  return;
-                }
-              };
-
-              active_websockets.push(Socket {
-                send: outgoing_sender.clone(),
-                recieve: incoming_reciever.clone(),
-                role: role.clone(),
-              });
-
-              match connection_callbacks.read() {
-                Ok(v) => {
-                  for cb in v.iter() {
-                    cb(&Socket {
-                      send: outgoing_sender.clone(),
-                      recieve: incoming_reciever.clone(),
-                      role: role.clone(),
-                    });
-                  }
-                }
-                Err(err) => eprintln!("Could not read connection callbacks: {err}"),
-              }
-            });
-
-            Ok::<_, Infallible>(warp::reply())
-          }
-        });
-
-    let callbacks = self.handlers.clone();
+        async {
+          socket_handler(role, ws, active_sockets, socket_connected_callbacks).await;
+          Ok::<_, Infallible>(warp::reply())
+        }
+      });
 
     // handles incoming http requests to this server
     let http_request_handler =
       warp::path::full()
         .and(warp::body::bytes())
-        .and_then(move |path: FullPath, body| {
-          let callbacks = callbacks.clone();
-          async move {
-            let path = path.as_str();
-            if !path.starts_with("/endpoints") {
-              Err(warp::reject::not_found())
-            } else {
-              let result = {
-                let lock = callbacks.read().await;
-                let path = path.strip_prefix("/endpoints").unwrap();
-                let handler = match lock.get(path) {
-                  Some(v) => v,
-                  None => {
-                    eprintln!("Could not find a registered handler for {path}");
-                    return Ok(
-                      Response::builder()
-                        .status(404)
-                        .body("Handler not found.".to_string()),
-                    );
-                  }
-                };
-
-                handler(body).await
-              };
-
-              match result {
-                Ok(v) => Ok(Response::builder().status(200).body(v)),
-                Err(err) => {
-                  eprintln!("Error while running handler for {path}: {err}");
-                  Ok(
-                    Response::builder()
-                      .status(StatusCode::INTERNAL_SERVER_ERROR)
-                      .body("Internal server error. Please see server logs.".to_string()),
-                  )
-                }
-              }
-            }
-          }
+        .and_then(move |path, body| {
+          let handlers = handlers.clone();
+          async { Ok::<_, Infallible>(http_handler(path, body, handlers).await) }
         });
 
     let (sender, reciever) = oneshot::channel::<()>();
@@ -224,7 +159,7 @@ impl ERPCServer {
     &mut self,
     cb: Box<dyn Fn(&Socket) + Send + Sync>,
   ) -> Result<(), String> {
-    for socket in match self.acitve_sockets.read() {
+    for socket in match self.active_sockets.read() {
       Ok(v) => v,
       Err(err) => {
         return Err(format!("Could not register socket callback (1): {err}"));
@@ -245,4 +180,138 @@ impl ERPCServer {
 
     Ok(())
   }
+}
+
+async fn http_handler(
+  path: FullPath,
+  body: Bytes,
+  request_handlers: Arc<tokio::sync::RwLock<HashMap<String, Handler>>>,
+) -> warp::http::Response<String> {
+  let path = path.as_str();
+  if !path.starts_with("/endpoints") {
+    return Response::builder()
+      .status(StatusCode::NOT_FOUND)
+      .body("Use /ws or /endpoints".to_string())
+      .unwrap();
+  }
+
+  let result = {
+    let lock = request_handlers.read().await;
+    let path = path.strip_prefix("/endpoints/").unwrap();
+    let handler = match lock.get(path) {
+      Some(v) => v,
+      None => {
+        eprintln!("Could not find a registered handler for {path}");
+        return Response::builder()
+          .status(StatusCode::NOT_FOUND)
+          .body("Handler not found.".to_string())
+          .unwrap();
+      }
+    };
+
+    let str = match String::from_utf8(body.to_vec()) {
+      Ok(v) => v,
+      Err(err) => {
+        eprintln!("Could not convert body to string {err}");
+        return Response::builder()
+          .status(StatusCode::INTERNAL_SERVER_ERROR)
+          .body("Internal server error. Please see server logs.".to_string())
+          .unwrap();
+      }
+    };
+
+    handler(str).await
+  };
+
+  match result {
+    Ok(v) => Response::builder().status(StatusCode::OK).body(v).unwrap(),
+    Err(err) => {
+      eprintln!("Error while running handler for {path}: {err}");
+      Response::builder()
+        .status(StatusCode::INTERNAL_SERVER_ERROR)
+        .body("Internal server error. Please see server logs.".to_string())
+        .unwrap()
+    }
+  }
+}
+
+async fn socket_handler(
+  role: String,
+  ws: warp::ws::Ws,
+  active_sockets: Arc<RwLock<Vec<Socket>>>,
+  socket_connected_callbacks: Arc<RwLock<Vec<Box<dyn Fn(&Socket) + Send + Sync>>>>,
+) {
+  ws.on_upgrade(|socket| async move {
+    let (mut socket_sender, mut socket_reciever) = socket.split();
+    // broadcast for incoming ws messages
+    let (incoming_sender, incoming_reciever) = flume::unbounded::<SocketMessage>();
+    // mpsc for outgoing ws messages
+    let (outgoing_sender, mut outgoing_reciever) = mpsc::unbounded_channel::<SocketMessage>();
+
+    tokio::spawn(async move {
+      while let Some(message) = socket_reciever.next().await {
+        let message = match message {
+          Ok(v) => {
+            let m: SocketMessage = match serde_json::from_slice(&v.as_bytes()) {
+              Ok(v) => v,
+              Err(err) => {
+                eprintln!("Websocket message parse error: {err}");
+                return;
+              }
+            };
+            m
+          }
+          Err(err) => {
+            eprintln!("Websocket message error: {err}");
+            return;
+          }
+        };
+
+        incoming_sender.send(message).unwrap();
+      }
+    });
+
+    tokio::spawn(async move {
+      while let Some(message) = outgoing_reciever.recv().await {
+        let text = match serde_json::to_string(&message) {
+          Ok(v) => v,
+          Err(err) => {
+            eprintln!("Could not serialize ws message: {err}");
+            return;
+          }
+        };
+        socket_sender
+          .send(warp::ws::Message::text(text))
+          .await
+          .unwrap();
+      }
+    });
+
+    let mut active_websockets = match active_sockets.write() {
+      Ok(v) => v,
+      Err(err) => {
+        println!("PoisonError in active_websockets lock: {err}");
+        return;
+      }
+    };
+
+    active_websockets.push(Socket {
+      send: outgoing_sender.clone(),
+      recieve: incoming_reciever.clone(),
+      role: role.clone(),
+    });
+
+    match socket_connected_callbacks.read() {
+      Ok(v) => {
+        for cb in v.iter() {
+          cb(&Socket {
+            send: outgoing_sender.clone(),
+            recieve: incoming_reciever.clone(),
+            role: role.clone(),
+          });
+        }
+      }
+      Err(err) => eprintln!("Could not read connection callbacks: {err}"),
+    }
+  });
 }

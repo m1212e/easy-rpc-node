@@ -1,5 +1,6 @@
 // Fork of threadsafe_function from napi-rs that allows calling JS function manually rather than
 // only returning args. This enables us to use the return value of the function.
+// https://github.com/napi-rs/napi-rs/issues/1307
 
 #![allow(clippy::single_component_path_imports)]
 
