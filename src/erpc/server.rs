@@ -1,5 +1,5 @@
-use futures::{SinkExt, StreamExt};
-use reqwest::StatusCode;
+use futures::{FutureExt, SinkExt, StreamExt};
+use reqwest::{Method, StatusCode};
 use std::{
   collections::HashMap,
   convert::Infallible,
@@ -10,8 +10,11 @@ use tokio::sync::{mpsc, oneshot};
 use warp::{
   hyper::{body::Bytes, Response},
   path::FullPath,
-  Filter, Future,
+  Filter, Future, Reply,
 };
+
+//TODO: include in docs that credentials are sent by default
+//TODO: refactor socket for easier usage
 
 use serde::{Deserialize, Serialize};
 
@@ -34,17 +37,18 @@ pub struct Socket {
 pub struct SocketRequest {
   pub id: String,
   pub method_identifier: String,
-  pub body: String,
+  pub body: serde_json::Value,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SocketResponse {
   pub id: String,
-  pub body: Option<String>,
+  pub body: Option<serde_json::Value>,
   pub error: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum SocketMessage {
   Request(SocketRequest),
   Response(SocketResponse),
@@ -56,6 +60,10 @@ pub struct ERPCServer {
    * The port the server runs on
    */
   port: u16,
+  /**
+   * List of the allowed origins
+   */
+  allowed_cors_origins: Vec<String>,
   /**
    * Request handlers for incoming requests to this server
    */
@@ -75,13 +83,14 @@ pub struct ERPCServer {
 }
 
 impl ERPCServer {
-  pub fn new(port: u16) -> ERPCServer {
+  pub fn new(port: u16, allowed_cors_origins: Vec<String>) -> ERPCServer {
     return ERPCServer {
       handlers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
       shutdown_signal: None,
       socket_connected_callbacks: Arc::new(RwLock::new(Vec::new())),
       active_sockets: Arc::new(RwLock::new(Vec::new())),
       port,
+      allowed_cors_origins,
     };
   }
 
@@ -101,17 +110,15 @@ impl ERPCServer {
     let handlers = self.handlers.clone();
 
     // handles ws connections which are established with this server to call endpoints on the connected client
-    let socket_handler = warp::path!("ws" / String)
-      .and(warp::ws())
-      .and_then(move |role, ws| {
-        let active_sockets = active_sockets.clone();
-        let socket_connected_callbacks = socket_connected_callbacks.clone();
+    let socket_handler =
+      warp::path!("ws" / String)
+        .and(warp::ws())
+        .map(move |role, ws: warp::ws::Ws| {
+          let active_sockets = active_sockets.clone();
+          let socket_connected_callbacks = socket_connected_callbacks.clone();
 
-        async {
-          socket_handler(role, ws, active_sockets, socket_connected_callbacks).await;
-          Ok::<_, Infallible>(warp::reply())
-        }
-      });
+          socket_handler(role, ws, active_sockets, socket_connected_callbacks)
+        });
 
     // handles incoming http requests to this server
     let http_request_handler =
@@ -122,13 +129,32 @@ impl ERPCServer {
           async { Ok::<_, Infallible>(http_handler(path, body, handlers).await) }
         });
 
+    // sets CORS headers to outgoing requests
+    let mut cors = warp::cors();
+
+    if self.allowed_cors_origins.contains(&"*".to_string()) {
+      cors = cors.allow_any_origin();
+    } else {
+      for origin in &self.allowed_cors_origins {
+        cors = cors.allow_origin(origin.as_str());
+      }
+    }
+    cors = cors.allow_methods(vec![Method::GET, Method::POST]);
+    cors = cors.allow_credentials(true);
+
     let (sender, reciever) = oneshot::channel::<()>();
     self.shutdown_signal = Some(sender);
 
-    let (_, server) = warp::serve(socket_handler.or(http_request_handler))
-      .bind_with_graceful_shutdown(([127, 0, 0, 1], self.port), async {
+    let combined_filter = (socket_handler.or(http_request_handler)).with(cors);
+
+    let (_, server) = warp::serve(combined_filter).bind_with_graceful_shutdown(
+      ([127, 0, 0, 1], self.port),
+      async {
         reciever.await.ok();
-      });
+      },
+    );
+
+    println!("Listening on {}", self.port);
     server.await;
 
     Ok(())
@@ -235,18 +261,19 @@ async fn http_handler(
   }
 }
 
-async fn socket_handler(
+fn socket_handler(
   role: String,
   ws: warp::ws::Ws,
   active_sockets: Arc<RwLock<Vec<Socket>>>,
   socket_connected_callbacks: Arc<RwLock<Vec<Box<dyn Fn(&Socket) + Send + Sync>>>>,
-) {
+) -> impl Reply {
   ws.on_upgrade(|socket| async move {
     let (mut socket_sender, mut socket_reciever) = socket.split();
     // broadcast for incoming ws messages
     let (incoming_sender, incoming_reciever) = flume::unbounded::<SocketMessage>();
     // mpsc for outgoing ws messages
     let (outgoing_sender, mut outgoing_reciever) = mpsc::unbounded_channel::<SocketMessage>();
+
 
     tokio::spawn(async move {
       while let Some(message) = socket_reciever.next().await {
@@ -313,5 +340,5 @@ async fn socket_handler(
       }
       Err(err) => eprintln!("Could not read connection callbacks: {err}"),
     }
-  });
+  })
 }

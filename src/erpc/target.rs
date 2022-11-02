@@ -16,7 +16,7 @@ pub struct ERPCTarget {
   adress: String,
   port: u16,
   types: Vec<String>,
-  socket: Option<Socket>,
+  socket: Arc<Mutex<Option<Socket>>>,
   requests: Arc<Mutex<HashMap<String, oneshot::Sender<SocketResponse>>>>,
   reqwest_client: reqwest::Client,
 }
@@ -31,7 +31,7 @@ impl ERPCTarget {
       adress,
       port,
       types,
-      socket: None::<Socket>,
+      socket: Arc::new(Mutex::new(None::<Socket>)),
       requests: Arc::new(Mutex::new(HashMap::new())),
       reqwest_client: reqwest::Client::new(),
     }
@@ -42,14 +42,14 @@ impl ERPCTarget {
     method_identifier: String,
     parameters: Vec<impl serde::Serialize>,
   ) -> Result<T, String> {
-    let body = match serde_json::to_string(&parameters) {
-      Ok(v) => v,
-      Err(err) => {
-        return Err(format!("Could not serialize: {err}"));
-      }
-    };
-
     if self.types.contains(&"http-server".to_string()) {
+      let body = match serde_json::to_string(&parameters) {
+        Ok(v) => v,
+        Err(err) => {
+          return Err(format!("Could not serialize: {err}"));
+        }
+      };
+
       let r = match self
         .reqwest_client
         .post(format!(
@@ -72,10 +72,22 @@ impl ERPCTarget {
         Err(err) => Err(format!("Error while awaiting request body: {err}")),
       }
     } else if self.types.contains(&"browser".to_string()) {
-      let socket = match &self.socket {
-        Some(v) => v.send.clone(),
-        None => {
-          return Err(format!("Socket not set for this target!"));
+      let body = match serde_json::to_value(&parameters) {
+        Ok(v) => v,
+        Err(err) => {
+          return Err(format!("Could not serialize: {err}"));
+        }
+      };
+
+      let socket = match &self.socket.lock() {
+        Ok(v) => match &**v {
+          Some(v) => v.send.clone(),
+          None => {
+            return Err(format!("Socket not set for this target!"));
+          }
+        },
+        Err(err) => {
+          return Err(format!("Could not access socket lock: {err}"));
         }
       };
 
@@ -119,7 +131,7 @@ impl ERPCTarget {
         },
       };
 
-      match serde_json::from_str::<T>(&result) {
+      match serde_json::from_value::<T>(result) {
         Ok(v) => Ok(v),
         Err(err) => Err(format!("Error while parsing request body: {err}")),
       }
@@ -129,7 +141,15 @@ impl ERPCTarget {
   }
 
   pub async fn listen_on_socket(&mut self, socket: Socket) {
-    self.socket = Some(socket.clone());
+    match self.socket.lock() {
+      Ok(mut v) => {
+        *v = Some(socket.clone());
+      }
+      Err(err) => {
+        eprintln!("Socket lock error: {err}");
+        return;
+      }
+    }
 
     loop {
       let msg = match socket.recieve.recv_async().await {

@@ -19,7 +19,7 @@ pub struct ServerOptions {
   pub allowed_cors_origins: Vec<String>,
 }
 
-#[napi]
+#[napi(js_name = "ERPCServer")]
 pub struct ERPCServer {
   server: crate::erpc::server::ERPCServer,
 }
@@ -34,7 +34,7 @@ impl ERPCServer {
     role: String,
   ) -> Self {
     ERPCServer {
-      server: crate::erpc::server::ERPCServer::new(options.port),
+      server: crate::erpc::server::ERPCServer::new(options.port, options.allowed_cors_origins),
     }
   }
 
@@ -84,12 +84,12 @@ impl ERPCServer {
             .unwrap();
         } else {
           unsafe {
-            let prm: Promise<String> = Promise::from_napi_value(ctx.env.raw(), response.raw())?;
+            let prm: Promise<serde_json::Value> = Promise::from_napi_value(ctx.env.raw(), response.raw())?;
             let response_channel = response_channel.clone();
             ctx.env.execute_tokio_future(
               async move {
                 let result = prm.await?;
-                match response_channel.send(result).await {
+                match response_channel.send(serde_json::to_string(&result)?).await {
                   Ok(_) => {}
                   Err(err) => eprintln!("Could not send on return channel: {err}"),
                 };
@@ -106,7 +106,7 @@ impl ERPCServer {
       Ok(v) => v,
       Err(err) => {
         return Err(napi::Error::from_reason(format!(
-          "Could not create threadsafe function: {err}"
+          "Could not create threadsafe function for {identifier}: {err}"
         )))
       }
     };
@@ -142,7 +142,7 @@ impl ERPCServer {
           }
         }
 
-        thread::sleep(Duration::from_millis(1000));
+        // thread::sleep(Duration::from_millis(1000));
 
         Box::pin(async move {
           match reciever.recv().await {
@@ -182,7 +182,7 @@ impl ERPCServer {
       Ok(v) => v,
       Err(err) => {
         return Err(napi::Error::from_reason(format!(
-          "Could not create threadsafe function: {err}"
+          "Could not create threadsafe function for socket callback: {err}"
         )))
       }
     };
@@ -206,6 +206,9 @@ impl ERPCServer {
     Ok(())
   }
 
+  /**
+   * Starts the server as configured
+   */
   #[napi]
   pub async fn run(&mut self) -> Result<(), napi::Error> {
     match self.server.run().await {
@@ -214,6 +217,9 @@ impl ERPCServer {
     }
   }
 
+  /**
+   * Stops the server
+   */
   #[napi]
   pub fn stop(&mut self) -> Result<(), napi::Error> {
     match self.server.stop() {

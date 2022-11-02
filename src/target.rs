@@ -4,11 +4,12 @@ use crate::erpc::server::Socket;
 
 #[napi(object)]
 pub struct TargetOptions {
-  pub port: u16,
-  pub adress: String,
+  // fields may not exists if the target is a browser
+  pub port: Option<u16>,
+  pub adress: Option<String>,
 }
 
-#[napi]
+#[napi(js_name = "ERPCTarget")]
 pub struct ERPCTarget {
   target: crate::erpc::target::ERPCTarget,
 }
@@ -18,7 +19,11 @@ impl ERPCTarget {
   #[napi(constructor)]
   pub fn new(options: TargetOptions, types: Vec<String>) -> Self {
     ERPCTarget {
-      target: crate::erpc::target::ERPCTarget::new(options.adress, options.port, types),
+      target: crate::erpc::target::ERPCTarget::new(
+        options.adress.unwrap_or("".to_string()),
+        options.port.unwrap_or(0),
+        types,
+      ),
     }
   }
 
@@ -51,7 +56,7 @@ impl ERPCTarget {
   }
 
   #[napi(skip_typescript, js_name = "setERPCSocket")]
-  pub fn set_erpc_sockets(&self, env: Env, mut socket: JsObject) -> Result<(), napi::Error> {
+  pub fn set_erpc_socket(&self, env: Env, mut socket: JsObject) -> Result<(), napi::Error> {
     let mut t = self.target.clone();
     let socket: &mut Socket = env.unwrap(&mut socket)?;
     let socket = socket.clone();
