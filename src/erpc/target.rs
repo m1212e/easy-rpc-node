@@ -13,7 +13,7 @@ use super::server::{Socket, SocketMessage, SocketRequest, SocketResponse};
 
 #[derive(Debug, Clone)]
 pub struct ERPCTarget {
-  adress: String,
+  address: String,
   port: u16,
   types: Vec<String>,
   socket: Arc<Mutex<Option<Socket>>>,
@@ -22,13 +22,13 @@ pub struct ERPCTarget {
 }
 
 impl ERPCTarget {
-  pub fn new(mut adress: String, port: u16, types: Vec<String>) -> Self {
-    if adress.ends_with("/") {
-      adress.pop();
+  pub fn new(mut address: String, port: u16, types: Vec<String>) -> Self {
+    if address.ends_with("/") {
+      address.pop();
     }
 
     ERPCTarget {
-      adress,
+      address,
       port,
       types,
       socket: Arc::new(Mutex::new(None::<Socket>)),
@@ -54,7 +54,7 @@ impl ERPCTarget {
         .reqwest_client
         .post(format!(
           "{}:{}/endpoints/{method_identifier}",
-          self.adress, self.port
+          self.address, self.port
         ))
         .body(body)
         .send()

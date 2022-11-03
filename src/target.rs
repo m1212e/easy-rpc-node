@@ -4,9 +4,8 @@ use crate::erpc::server::Socket;
 
 #[napi(object)]
 pub struct TargetOptions {
-  // fields may not exists if the target is a browser
-  pub port: Option<u16>,
-  pub adress: Option<String>,
+  pub port: u16,
+  pub address: String,
 }
 
 #[napi(js_name = "ERPCTarget")]
@@ -20,8 +19,8 @@ impl ERPCTarget {
   pub fn new(options: TargetOptions, types: Vec<String>) -> Self {
     ERPCTarget {
       target: crate::erpc::target::ERPCTarget::new(
-        options.adress.unwrap_or("".to_string()),
-        options.port.unwrap_or(0),
+        options.address,
+        options.port,
         types,
       ),
     }
