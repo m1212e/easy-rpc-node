@@ -87,7 +87,8 @@ jobs:
               /aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip *.node
           - host: windows-latest
             target: aarch64-pc-windows-msvc
-            build: yarn build --target aarch64-pc-windows-msvc
+            build: |
+              yarn build --target aarch64-pc-windows-msvc
     name: stable - ${{ matrix.settings.target }} - node@16
     runs-on: ${{ matrix.settings.host }}
     steps:
@@ -140,6 +141,18 @@ jobs:
           check-latest: true
           cache: yarn
           architecture: x86
+      - name: Fix ring dependency for Windows ARM64
+        if: matrix.settings.target == 'aarch64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          @('', '[patch.crates-io]',
+          'ring = { git = "https://github.com/awakecoding/ring", branch = "0.16.20_alpha" }') | % {
+            Add-Content -Path "Cargo.toml" -Value $_
+          }
+          $VSINSTALLDIR = $(vswhere.exe -latest -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath)
+          $VCINSTALLDIR = Join-Path $VSINSTALLDIR "VC"
+          $LLVM_ROOT = Join-Path $VCINSTALLDIR "Tools\Llvm\x64"
+          echo "PATH=$Env:PATH;${LLVM_ROOT}\bin" >> $Env:GITHUB_ENV
       - name: Build in docker
         uses: addnab/docker-run-action@v3
         if: ${{ matrix.settings.docker }}
