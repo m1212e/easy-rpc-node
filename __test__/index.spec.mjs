@@ -1,7 +1,7 @@
 import test from 'ava'
 import {ERPCServer, ERPCTarget} from '../index.js'
 
-test('create erpc server', (t) => {
+test('test bindings', (t) => {
 
   const server = new ERPCServer({
     port: 9988,
