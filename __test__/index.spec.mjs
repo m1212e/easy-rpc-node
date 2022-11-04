@@ -3,14 +3,16 @@ import {ERPCServer, ERPCTarget} from '../index.js'
 
 test('create erpc server', (t) => {
 
-  new ERPCServer({
+  const server = new ERPCServer({
     port: 9988,
     allowedCorsOrigins: ["*"]
-  }, true, "role");
+  }, ["http-server"], true, "Backend");
 
-  new ERPCTarget({
+  const target = new ERPCTarget({
     address: "",
     port: 0
   }, ["http-server"])
 
+  t.assert(server != undefined)
+  t.assert(target != undefined)
 })
