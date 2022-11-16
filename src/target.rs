@@ -16,12 +16,12 @@ pub struct ERPCTarget {
 #[napi]
 impl ERPCTarget {
   #[napi(constructor)]
-  pub fn new(options: TargetOptions, types: Vec<String>) -> Self {
+  pub fn new(options: TargetOptions, target_type: String) -> Self {
     ERPCTarget {
       target: crate::erpc::target::ERPCTarget::new(
         options.address,
         options.port,
-        types,
+        target_type,
       ),
     }
   }

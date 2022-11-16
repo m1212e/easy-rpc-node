@@ -15,14 +15,14 @@ use super::server::{Socket, SocketMessage, SocketRequest, SocketResponse};
 pub struct ERPCTarget {
   address: String,
   port: u16,
-  types: Vec<String>,
+  target_type: String,
   socket: Arc<Mutex<Option<Socket>>>,
   requests: Arc<Mutex<HashMap<String, oneshot::Sender<SocketResponse>>>>,
   reqwest_client: reqwest::Client,
 }
 
 impl ERPCTarget {
-  pub fn new(mut address: String, port: u16, types: Vec<String>) -> Self {
+  pub fn new(mut address: String, port: u16, target_type: String) -> Self {
     if address.ends_with("/") {
       address.pop();
     }
@@ -30,7 +30,7 @@ impl ERPCTarget {
     ERPCTarget {
       address,
       port,
-      types,
+      target_type,
       socket: Arc::new(Mutex::new(None::<Socket>)),
       requests: Arc::new(Mutex::new(HashMap::new())),
       reqwest_client: reqwest::Client::new(),
@@ -42,7 +42,7 @@ impl ERPCTarget {
     method_identifier: String,
     parameters: Vec<impl serde::Serialize>,
   ) -> Result<T, String> {
-    if self.types.contains(&"http-server".to_string()) {
+    if self.target_type == "http-server" {
       let body = match serde_json::to_string(&parameters) {
         Ok(v) => v,
         Err(err) => {
@@ -71,7 +71,7 @@ impl ERPCTarget {
         },
         Err(err) => Err(format!("Error while awaiting request body: {err}")),
       }
-    } else if self.types.contains(&"browser".to_string()) {
+    } else if self.target_type == "browser" {
       let body = match serde_json::to_value(&parameters) {
         Ok(v) => v,
         Err(err) => {

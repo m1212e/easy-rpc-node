@@ -29,7 +29,7 @@ impl ERPCServer {
   #[napi(constructor)]
   pub fn new(
     options: ServerOptions,
-    types: Vec<String>,
+    server_type: String,
     enable_sockets: bool,
     role: String,
   ) -> Self {
