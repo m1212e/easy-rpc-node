@@ -12,7 +12,7 @@ export interface TargetOptions {
   address: string
 }
 export class ERPCServer {
-  constructor(options: ServerOptions, types: Array<string>, enableSockets: boolean, role: string)
+  constructor(options: ServerOptions, serverType: string, enableSockets: boolean, role: string)
   /**
   * Starts the server as configured
   */
@@ -23,5 +23,5 @@ export class ERPCServer {
   stop(): void
 }
 export class ERPCTarget {
-  constructor(options: TargetOptions, types: Array<string>)
+  constructor(options: TargetOptions, targetType: string)
 }
