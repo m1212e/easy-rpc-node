@@ -1,16 +1,18 @@
-use futures::{FutureExt, SinkExt, StreamExt};
-use reqwest::{Method, StatusCode};
+use bytes::Bytes;
+use futures::{Future, SinkExt, StreamExt};
+use hyper::http::HeaderValue;
+use reqwest::{StatusCode};
 use std::{
-  collections::HashMap,
-  convert::Infallible,
+  collections::{HashMap, HashSet},
+  net::SocketAddr,
   pin::Pin,
   sync::{Arc, RwLock},
 };
 use tokio::sync::{mpsc, oneshot};
-use warp::{
-  hyper::{body::Bytes, Response},
-  path::FullPath,
-  Filter, Future, Reply,
+use viz::{
+  middleware::cors,
+  types::{Params, WebSocket},
+  Request, RequestExt, Response, Router, Server, ServiceMaker,
 };
 
 //TODO: include in docs that credentials are sent by default
@@ -19,9 +21,7 @@ use warp::{
 use serde::{Deserialize, Serialize};
 
 type Handler = Box<
-  dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + Sync>>
-    + Send
-    + Sync,
+  dyn Fn(Bytes) -> Pin<Box<dyn Future<Output = Result<Bytes, String>> + Send + Sync>> + Send + Sync,
 >;
 
 #[derive(Clone, Debug)]
@@ -65,6 +65,10 @@ pub struct ERPCServer {
    */
   allowed_cors_origins: Vec<String>,
   /**
+   * If this server should accept websocket connections
+   */
+  enable_sockets: bool,
+  /**
    * Request handlers for incoming requests to this server
    */
   handlers: Arc<tokio::sync::RwLock<HashMap<String, Handler>>>,
@@ -82,11 +86,31 @@ pub struct ERPCServer {
   active_sockets: Arc<RwLock<Vec<Socket>>>,
 }
 
+#[derive(Clone)]
+struct EPRCHandler {
+  /**
+   * Request handlers for incoming requests to this server
+   */
+  handlers: Arc<tokio::sync::RwLock<HashMap<String, Handler>>>,
+}
+
+impl viz::Handler<Request> for EPRCHandler {
+  type Output = viz::Result<Response>;
+
+  async fn call(&self, req: Request) -> Self::Output {
+      let path = req.path().clone();
+      let method = req.method().clone();
+      let count = self.count.fetch_add(1, Ordering::SeqCst);
+      Ok(format!("method = {method}, path = {path}, count = {count}").into_response())
+  }
+}
+
 impl ERPCServer {
-  pub fn new(port: u16, allowed_cors_origins: Vec<String>) -> ERPCServer {
+  pub fn new(port: u16, allowed_cors_origins: Vec<String>, enable_sockets: bool) -> ERPCServer {
     return ERPCServer {
       handlers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
       shutdown_signal: None,
+      enable_sockets,
       socket_connected_callbacks: Arc::new(RwLock::new(Vec::new())),
       active_sockets: Arc::new(RwLock::new(Vec::new())),
       port,
@@ -105,57 +129,43 @@ impl ERPCServer {
   }
 
   pub async fn run(&mut self) -> Result<(), String> {
-    let active_sockets = self.active_sockets.clone();
-    let socket_connected_callbacks = self.socket_connected_callbacks.clone();
+    let addr = SocketAddr::from(([127, 0, 0, 1], self.port));
+    println!("🚀 easy-rpc listening on {addr}...");
+
+    let app = Router::new();
+
+    app.with(cors::Config {
+      allow_origins: HashSet::from(
+        self
+          .allowed_cors_origins
+          .iter()
+          .map(|v| HeaderValue::from_str(v))
+          .collect(),
+      ),
+      credentials: true,
+      ..Default::default()
+    });
+
     let handlers = self.handlers.clone();
+    app.any("/endpoints", |req| http_handler(req, handlers));
 
-    // handles ws connections which are established with this server to call endpoints on the connected client
-    let socket_handler =
-      warp::path!("ws" / String)
-        .and(warp::ws())
-        .map(move |role, ws: warp::ws::Ws| {
-          let active_sockets = active_sockets.clone();
-          let socket_connected_callbacks = socket_connected_callbacks.clone();
+    // app.any("/endpoints", );
 
-          socket_handler(role, ws, active_sockets, socket_connected_callbacks)
-        });
+    // if self.enable_sockets {
+    //   app.any("/ws/:role", socket_handler(req, active_sockets, socket_connected_callbacks));
+    // }
 
-    // handles incoming http requests to this server
-    let http_request_handler =
-      warp::path::full()
-        .and(warp::body::bytes())
-        .and_then(move |path, body| {
-          let handlers = handlers.clone();
-          async { Ok::<_, Infallible>(http_handler(path, body, handlers).await) }
-        });
-
-    // sets CORS headers to outgoing requests
-    let mut cors = warp::cors();
-
-    if self.allowed_cors_origins.contains(&"*".to_string()) {
-      cors = cors.allow_any_origin();
-    } else {
-      for origin in &self.allowed_cors_origins {
-        cors = cors.allow_origin(origin.as_str());
-      }
-    }
-    cors = cors.allow_methods(vec![Method::GET, Method::POST]);
-    cors = cors.allow_credentials(true);
-
+    // shutdown signal
     let (sender, reciever) = oneshot::channel::<()>();
     self.shutdown_signal = Some(sender);
 
-    let combined_filter = (socket_handler.or(http_request_handler)).with(cors);
-
-    let (_, server) = warp::serve(combined_filter).bind_with_graceful_shutdown(
-      ([127, 0, 0, 1], self.port),
-      async {
-        reciever.await.ok();
-      },
-    );
-
-    println!("Listening on {}", self.port);
-    server.await;
+    if let Err(e) = Server::bind(&addr)
+      .serve(ServiceMaker::from(app))
+      .with_graceful_shutdown(async { reciever.await.ok().unwrap() })
+      .await
+    {
+      return Err(format!("{:#?}", e));
+    }
 
     Ok(())
   }
@@ -209,84 +219,109 @@ impl ERPCServer {
 }
 
 async fn http_handler(
-  path: FullPath,
-  body: Bytes,
+  req: Request,
   request_handlers: Arc<tokio::sync::RwLock<HashMap<String, Handler>>>,
-) -> warp::http::Response<String> {
-  let path = path.as_str();
-  if !path.starts_with("/endpoints") {
-    return Response::builder()
-      .status(StatusCode::NOT_FOUND)
-      .body("Use /ws or /endpoints".to_string())
-      .unwrap();
-  }
+) -> viz::Result<Response> {
+  let path = req
+    .uri()
+    .path()
+    .strip_prefix("/endpoints/")
+    .unwrap()
+    .to_owned();
 
   let result = {
     let lock = request_handlers.read().await;
-    let path = path.strip_prefix("/endpoints/").unwrap();
-    let handler = match lock.get(path) {
+
+    let handler = match lock.get(&path) {
       Some(v) => v,
       None => {
         eprintln!("Could not find a registered handler for {path}");
-        return Response::builder()
-          .status(StatusCode::NOT_FOUND)
-          .body("Handler not found.".to_string())
-          .unwrap();
+        return Ok(
+          Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(viz::Body::from("Handler not found."))
+            .unwrap(),
+        );
       }
     };
 
-    let str = match String::from_utf8(body.to_vec()) {
+    let body = match hyper::body::to_bytes(req.into_body()).await {
       Ok(v) => v,
       Err(err) => {
-        eprintln!("Could not convert body to string {err}");
-        return Response::builder()
-          .status(StatusCode::INTERNAL_SERVER_ERROR)
-          .body("Internal server error. Please see server logs.".to_string())
-          .unwrap();
+        eprintln!("Could not extract body from request {err}");
+        return Ok(
+          Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(viz::Body::from("Please see the server logs."))
+            .unwrap(),
+        );
       }
     };
 
-    handler(str).await
+    handler(body).await
   };
 
   match result {
-    Ok(v) => Response::builder().status(StatusCode::OK).body(v).unwrap(),
+    Ok(v) => {
+      return Ok(
+        Response::builder()
+          .status(StatusCode::OK)
+          .body(v.into())
+          .unwrap(),
+      );
+    }
     Err(err) => {
       eprintln!("Error while running handler for {path}: {err}");
-      Response::builder()
-        .status(StatusCode::INTERNAL_SERVER_ERROR)
-        .body("Internal server error. Please see server logs.".to_string())
-        .unwrap()
+      return Ok(
+        Response::builder()
+          .status(StatusCode::INTERNAL_SERVER_ERROR)
+          .body(viz::Body::from("Please see the server logs."))
+          .unwrap(),
+      );
     }
   }
 }
 
-fn socket_handler(
-  role: String,
-  ws: warp::ws::Ws,
+async fn socket_handler(
+  mut req: Request,
   active_sockets: Arc<RwLock<Vec<Socket>>>,
   socket_connected_callbacks: Arc<RwLock<Vec<Box<dyn Fn(&Socket) + Send + Sync>>>>,
-) -> impl Reply {
-  ws.on_upgrade(|socket| async move {
+) -> viz::Result<Response> {
+  let (ws, Params(role)): (WebSocket, Params<String>) = match req.extract().await {
+    Ok(v) => v,
+    Err(err) => todo!(),
+  };
+
+  Ok(ws.on_upgrade(move |socket| async move {
     let (mut socket_sender, mut socket_reciever) = socket.split();
     // broadcast for incoming ws messages
     let (incoming_sender, incoming_reciever) = flume::unbounded::<SocketMessage>();
     // mpsc for outgoing ws messages
     let (outgoing_sender, mut outgoing_reciever) = mpsc::unbounded_channel::<SocketMessage>();
 
-
     tokio::spawn(async move {
       while let Some(message) = socket_reciever.next().await {
         let message = match message {
           Ok(v) => {
-            let m: SocketMessage = match serde_json::from_slice(&v.as_bytes()) {
+            let message_parse_result = match v {
+              viz::types::Message::Text(text) => serde_json::from_str::<SocketMessage>(&text),
+              viz::types::Message::Binary(binary) => {
+                serde_json::from_slice::<SocketMessage>(&binary)
+              }
+              viz::types::Message::Ping(msg) => continue,
+              viz::types::Message::Close(_) => break,
+              viz::types::Message::Pong(_) => continue,
+              viz::types::Message::Frame(_) => continue,
+            };
+
+            let message: SocketMessage = match message_parse_result {
               Ok(v) => v,
               Err(err) => {
                 eprintln!("Websocket message parse error: {err}");
                 return;
               }
             };
-            m
+            message
           }
           Err(err) => {
             eprintln!("Websocket message error: {err}");
@@ -308,7 +343,7 @@ fn socket_handler(
           }
         };
         socket_sender
-          .send(warp::ws::Message::text(text))
+          .send(viz::types::Message::Text(text))
           .await
           .unwrap();
       }
@@ -340,5 +375,5 @@ fn socket_handler(
       }
       Err(err) => eprintln!("Could not read connection callbacks: {err}"),
     }
-  })
+  }))
 }

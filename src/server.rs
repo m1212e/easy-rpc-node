@@ -3,13 +3,11 @@
 //TODO: remove unwraps
 //TODO: refactoring
 
-use std::{thread, time::Duration};
-
 use napi::{
   bindgen_prelude::{FromNapiValue, Promise},
   Env, JsFunction, JsUnknown, NapiRaw,
 };
-use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 
 use crate::erpc::server::Socket;
 
@@ -29,17 +27,21 @@ impl ERPCServer {
   #[napi(constructor)]
   pub fn new(
     options: ServerOptions,
-    server_type: String,
+    _server_type: String, // this exists for consistency reasons but isn't acutally needed since there is only ever the "http-server" value when we're on node.js
     enable_sockets: bool,
-    role: String,
+    _role: String, // contains the role name of this server. Currently unused
   ) -> Self {
     ERPCServer {
-      server: crate::erpc::server::ERPCServer::new(options.port, options.allowed_cors_origins),
+      server: crate::erpc::server::ERPCServer::new(
+        options.port,
+        options.allowed_cors_origins,
+        enable_sockets,
+      ),
     }
   }
 
   #[napi(skip_typescript, js_name = "registerERPCCallbackFunction")]
-  pub fn register_erpc_callback_function(
+  pub fn register_erpc_handler(
     &mut self,
     env: Env,
     func: JsFunction,
@@ -51,7 +53,7 @@ impl ERPCServer {
       0,
       |ctx: crate::threadsafe_function::ThreadSafeCallContext<(
         Vec<serde_json::Value>,
-        mpsc::Sender<String>,
+        oneshot::Sender<serde_json::Value>,
       )>| {
         let args = ctx
           .value
@@ -61,7 +63,7 @@ impl ERPCServer {
           .collect::<Result<Vec<JsUnknown>, napi::Error>>()?;
 
         let response = ctx.callback.call(None, &args)?;
-        let response_channel = ctx.value.1.clone();
+        let response_channel = ctx.value.1;
 
         if !response.is_promise()? {
           // String::from_napi_value(ctx.env.raw(), response.raw())?
@@ -70,10 +72,7 @@ impl ERPCServer {
             .env
             .execute_tokio_future(
               async move {
-                match response_channel
-                  .send(serde_json::to_string(&response)?)
-                  .await
-                {
+                match response_channel.send(serde_json::to_value(&response)?) {
                   Ok(_) => {}
                   Err(err) => eprintln!("Could not send on return channel: {err}"),
                 };
@@ -84,12 +83,12 @@ impl ERPCServer {
             .unwrap();
         } else {
           unsafe {
-            let prm: Promise<serde_json::Value> = Promise::from_napi_value(ctx.env.raw(), response.raw())?;
-            let response_channel = response_channel.clone();
+            let prm: Promise<serde_json::Value> =
+              Promise::from_napi_value(ctx.env.raw(), response.raw())?;
             ctx.env.execute_tokio_future(
               async move {
                 let result = prm.await?;
-                match response_channel.send(serde_json::to_string(&result)?).await {
+                match response_channel.send(serde_json::to_value(&result)?) {
                   Ok(_) => {}
                   Err(err) => eprintln!("Could not send on return channel: {err}"),
                 };
@@ -118,7 +117,7 @@ impl ERPCServer {
             println!("Request body is empty. Defaulting to [] parameters.");
             vec![]
           }
-          false => match serde_json::from_str(&input) {
+          false => match serde_json::from_slice(&input) {
             Ok(v) => v,
             Err(err) => {
               return Box::pin(
@@ -128,8 +127,7 @@ impl ERPCServer {
           },
         };
 
-        //TODO change this back to oneshot
-        let (sender, mut reciever) = mpsc::channel::<String>(1);
+        let (sender, mut reciever) = oneshot::channel::<serde_json::Value>();
         let r = tsf.call(
           (val, sender),
           crate::threadsafe_function::ThreadsafeFunctionCallMode::Blocking,
@@ -142,18 +140,17 @@ impl ERPCServer {
           }
         }
 
-        // thread::sleep(Duration::from_millis(1000));
-
         Box::pin(async move {
-          match reciever.recv().await {
-            Some(v) => Ok(v),
-            None => {
-              panic!("ended");
-            }
+          let r = match reciever.await {
+            Ok(v) => v,
+            Err(err) => return Err(format!("Could not receive from channel: {err}")),
+          };
+
+          match serde_json::to_vec(&r) {
+            Ok(v) => Ok(v.into()),
+            Err(err) => Err(format!("Could not serialize response: {err}")),
           }
         })
-
-        // Box::pin(async move { Ok(reciever.recv().await.unwrap()) })
       }),
       &identifier,
     ) {
