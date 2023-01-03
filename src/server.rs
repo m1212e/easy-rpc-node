@@ -164,17 +164,17 @@ impl ERPCServer {
   /**
    * Starts the server as configured
    */
-  #[napi]
-  pub fn run(&self, env: Env) -> Result<(), napi::Error> {
-    let server = self.server.clone();
-    env.execute_tokio_future(move || {
-      async {
-        server.run().await.map_err(|err| napi::Error::from_reason(err))
-      }
-    },
-      |_, _| Ok(()),
-    );
-    Ok(())
+  // #[napi]
+  // pub fn run(&self, env: Env) -> Result<(), napi::Error> {
+  //   let server = self.server.clone();
+  //   env.execute_tokio_future(move || {
+  //     async {
+  //       server.run().await.map_err(|err| napi::Error::from_reason(err))
+  //     }
+  //   },
+  //     |_, _| Ok(()),
+  //   );
+  //   Ok(())
 
     // match server.run().await {
     //   Ok(_) => Ok(()),
@@ -184,6 +184,18 @@ impl ERPCServer {
     //     )))
     //   }
     // }
+  // }
+
+  #[napi]
+  pub async fn run(&self) -> Result<(), napi::Error> {
+    match self.server.run().await {
+      Ok(_) => Ok(()),
+      Err(err) => {
+        return Err(napi::Error::from_reason(format!(
+          "Could not start server: {err}"
+        )))
+      }
+    }
   }
 
   /**
