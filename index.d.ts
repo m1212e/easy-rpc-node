@@ -14,7 +14,7 @@ export interface TargetOptions {
 export class ERPCServer {
   constructor(options: ServerOptions, serverType: string, enableSockets: boolean, role: string)
   /**
-  * Starts the server as configured
+  Starts the server as configured
   */
   run(): Promise<void>
   /**

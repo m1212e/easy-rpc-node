@@ -3,12 +3,9 @@
 //TODO: remove unwraps
 //TODO: refactoring
 
-use std::pin::Pin;
-
-use futures_util::{Future, TryFutureExt};
 use napi::{
   bindgen_prelude::{FromNapiValue, Promise},
-  CallContext, Env, JsFunction, JsUnknown, NapiRaw,
+  Env, JsFunction, JsUnknown, NapiRaw,
 };
 use tokio::sync::oneshot;
 
@@ -43,7 +40,7 @@ impl ERPCServer {
     }
   }
 
-  #[napi(skip_typescript, js_name = "registerERPCCallbackFunction")]
+  #[napi(skip_typescript, js_name = "registerERPCHandler")]
   pub fn register_erpc_callback_function(
     &mut self,
     env: Env,
@@ -74,7 +71,14 @@ impl ERPCServer {
             .env
             .execute_tokio_future(
               async move {
-                response_channel.send(serde_json::to_value(&response)?);
+                match response_channel.send(serde_json::to_value(&response)?) {
+                  Ok(_) => {}
+                  Err(err) => {
+                    return Err(napi::Error::from_reason(format!(
+                      "Could not send response: {err}"
+                    )))
+                  }
+                };
                 Ok(())
               },
               |_, _| Ok(()),
@@ -87,7 +91,14 @@ impl ERPCServer {
             ctx.env.execute_tokio_future(
               async move {
                 let result = prm.await?;
-                response_channel.send(serde_json::to_value(&result)?);
+                match response_channel.send(serde_json::to_value(&result)?) {
+                  Ok(_) => {}
+                  Err(err) => {
+                    return Err(napi::Error::from_reason(format!(
+                      "Could not send response: {err}"
+                    )))
+                  }
+                };
                 Ok(())
               },
               |_, _| Ok(()),
@@ -163,6 +174,9 @@ impl ERPCServer {
       .map_err(|err| napi::Error::from_reason(format!("Could not register callback: {err}")))
   }
 
+  /**
+    Starts the server as configured
+  */
   #[napi]
   pub async fn run(&self) -> Result<(), napi::Error> {
     let fut = match self.server.run() {

@@ -101,6 +101,7 @@ impl ERPCServer {
     }
   }
 
+  #[allow(dead_code)]
   pub fn register_raw_handler(&mut self, handler: Handler, identifier: &str) {
     self
       .handlers
@@ -109,6 +110,7 @@ impl ERPCServer {
       .insert(identifier.to_owned(), handler);
   }
 
+  #[allow(dead_code)]
   pub fn register_handler<H, P>(&mut self, handler: H, identifier: &str)
   where
     P: DeserializeOwned + Send + Sync,
@@ -217,7 +219,6 @@ impl ERPCServer {
       },
     );
 
-    println!("Listening on {}", self.port);
     Ok(server)
   }
 
@@ -375,7 +376,7 @@ impl ERPCServer {
         let mut active_websockets = match active_sockets.write() {
           Ok(v) => v,
           Err(err) => {
-            println!("PoisonError in active_websockets lock: {err}");
+            eprintln!("PoisonError in active_websockets lock: {err}");
             return;
           }
         };

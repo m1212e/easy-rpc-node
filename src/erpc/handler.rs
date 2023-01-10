@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 // inspired by https://github.com/actix/actix-web/blob/web-v3.3.2/src/handler.rs
 
 use erased_serde::Serialize;
