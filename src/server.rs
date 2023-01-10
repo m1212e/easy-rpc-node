@@ -3,7 +3,9 @@
 //TODO: remove unwraps
 //TODO: refactoring
 
-use futures_util::TryFutureExt;
+use std::pin::Pin;
+
+use futures_util::{Future, TryFutureExt};
 use napi::{
   bindgen_prelude::{FromNapiValue, Promise},
   CallContext, Env, JsFunction, JsUnknown, NapiRaw,
@@ -161,41 +163,19 @@ impl ERPCServer {
       .map_err(|err| napi::Error::from_reason(format!("Could not register callback: {err}")))
   }
 
-  /**
-   * Starts the server as configured
-   */
-  // #[napi]
-  // pub fn run(&self, env: Env) -> Result<(), napi::Error> {
-  //   let server = self.server.clone();
-  //   env.execute_tokio_future(move || {
-  //     async {
-  //       server.run().await.map_err(|err| napi::Error::from_reason(err))
-  //     }
-  //   },
-  //     |_, _| Ok(()),
-  //   );
-  //   Ok(())
-
-    // match server.run().await {
-    //   Ok(_) => Ok(()),
-    //   Err(err) => {
-    //     return Err(napi::Error::from_reason(format!(
-    //       "Could not start server: {err}"
-    //     )))
-    //   }
-    // }
-  // }
-
   #[napi]
   pub async fn run(&self) -> Result<(), napi::Error> {
-    match self.server.run().await {
-      Ok(_) => Ok(()),
+    let fut = match self.server.run() {
+      Ok(v) => v,
       Err(err) => {
         return Err(napi::Error::from_reason(format!(
           "Could not start server: {err}"
         )))
       }
-    }
+    };
+
+    fut.await;
+    Ok(())
   }
 
   /**
@@ -205,11 +185,9 @@ impl ERPCServer {
   pub fn stop(&self) -> Result<(), napi::Error> {
     match self.server.stop() {
       Ok(_) => Ok(()),
-      Err(err) => {
-        return Err(napi::Error::from_reason(format!(
-          "Could not stop server: {err}"
-        )))
-      }
+      Err(err) => Err(napi::Error::from_reason(format!(
+        "Could not stop server: {err}"
+      ))),
     }
   }
 }

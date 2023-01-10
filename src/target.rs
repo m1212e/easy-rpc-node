@@ -55,9 +55,9 @@ impl ERPCTarget {
   }
 
   #[napi(skip_typescript, js_name = "setERPCSocket")]
-  pub fn set_erpc_socket(&self, env: Env, mut socket: JsObject) -> Result<(), napi::Error> {
+  pub fn set_erpc_socket(&self, env: Env, socket: JsObject) -> Result<(), napi::Error> {
     let mut t = self.target.clone();
-    let socket: &mut Socket = env.unwrap(&mut socket)?;
+    let socket: &mut Socket = env.unwrap(&socket)?;
     let socket = socket.clone();
     env.execute_tokio_future(
       async move {

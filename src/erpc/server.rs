@@ -145,7 +145,7 @@ impl ERPCServer {
       .insert(identifier.to_owned(), v);
   }
 
-  pub async fn run(&self) -> Result<(), String> {
+  pub fn run(&self) -> Result<impl futures_util::Future<Output = ()> + Send + Sync, String> {
     let active_sockets = self.active_sockets.clone();
     let socket_connected_callbacks = self.socket_connected_callbacks.clone();
     let handlers = self.handlers.clone();
@@ -218,9 +218,7 @@ impl ERPCServer {
     );
 
     println!("Listening on {}", self.port);
-    server.await;
-
-    Ok(())
+    Ok(server)
   }
 
   pub fn stop(&self) -> Result<(), String> {

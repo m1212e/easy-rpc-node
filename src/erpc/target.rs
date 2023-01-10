@@ -23,7 +23,7 @@ pub struct ERPCTarget {
 
 impl ERPCTarget {
   pub fn new(mut address: String, port: u16, target_type: String) -> Self {
-    if address.ends_with("/") {
+    if address.ends_with('/') {
       address.pop();
     }
 
@@ -83,7 +83,7 @@ impl ERPCTarget {
         Ok(v) => match &**v {
           Some(v) => v.send.clone(),
           None => {
-            return Err(format!("Socket not set for this target!"));
+            return Err("Socket not set for this target!".to_string());
           }
         },
         Err(err) => {
@@ -124,9 +124,7 @@ impl ERPCTarget {
         None => match result.error {
           Some(err) => return Err(format!("Request failed with: {err}")),
           None => {
-            return Err(format!(
-              "Invalid response state, request has neither body nor error!"
-            ))
+            return Err("Invalid response state, request has neither body nor error!".to_string())
           }
         },
       };
