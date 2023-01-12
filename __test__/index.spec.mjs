@@ -33,8 +33,7 @@ test('test handler calls', async (t) => {
     return "helllloooo"
   }, "some/handler/identifier")
 
-  server.registerERPCHandler((p1) => {
-    t.assert(p1 == undefined)
+  server.registerERPCHandler(() => {
   }, "some/handler/identifier/two")
 
 

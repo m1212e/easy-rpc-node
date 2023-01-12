@@ -37,38 +37,40 @@ impl ERPCTarget {
     }
   }
 
+  //TODO: rework and ideally, use this in the browser too (monorepo?)
   pub async fn call<T: DeserializeOwned>(
     &self,
     method_identifier: String,
-    parameters: Vec<impl serde::Serialize>,
+    parameters: Option<Vec<impl serde::Serialize>>,
   ) -> Result<T, String> {
     if self.target_type == "http-server" {
-      let body = match serde_json::to_string(&parameters) {
-        Ok(v) => v,
-        Err(err) => {
-          return Err(format!("Could not serialize: {err}"));
-        }
-      };
+      let mut r = self.reqwest_client.post(format!(
+        "{}:{}/endpoints/{method_identifier}",
+        self.address, self.port
+      ));
 
-      let r = match self
-        .reqwest_client
-        .post(format!(
-          "{}:{}/endpoints/{method_identifier}",
-          self.address, self.port
-        ))
-        .body(body)
-        .send()
-        .await
-      {
+      if parameters.is_some() {
+        let body = match serde_json::to_string(&parameters) {
+          Ok(v) => v,
+          Err(err) => {
+            return Err(format!("Could not serialize: {err}"));
+          }
+        };
+        r = r.header("Content-Type", "application/json").body(body);
+      }
+
+      let r = match r.send().await {
         Ok(v) => v,
         Err(err) => return Err(format!("Request errored: {err}")),
       };
 
       match r.bytes().await {
-        Ok(v) => match serde_json::from_slice::<T>(&v) {
+        Ok(v) => {
+          println!("Response body: {:#?}", v);
+          match serde_json::from_slice::<T>(&v) {
           Ok(v) => Ok(v),
           Err(err) => Err(format!("Error while parsing request body: {err}")),
-        },
+        }},
         Err(err) => Err(format!("Error while awaiting request body: {err}")),
       }
     } else if self.target_type == "browser" {

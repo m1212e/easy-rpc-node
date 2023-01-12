@@ -5,6 +5,7 @@
 
 
 mod erpc;
+mod web;
 mod threadsafe_function;
 mod server;
 mod target;

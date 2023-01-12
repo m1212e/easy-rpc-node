@@ -1,39 +1,28 @@
 #![allow(non_snake_case)]
 
-// inspired by https://github.com/actix/actix-web/blob/web-v3.3.2/src/handler.rs
+// inspired by
+// https://github.com/actix/actix-web/blob/web-v3.3.2/src/handler.rs
+// https://github.com/actix/actix-web/blob/master/actix-web/src/handler.rs
 
-use erased_serde::Serialize;
 use futures_util::Future;
-use serde::de::DeserializeOwned;
 
-pub trait Handler<Parameters: DeserializeOwned>: Send + Sync + Clone {
-  type Output: Serialize;
-  type Future: Future<Output = Result<Self::Output, String>> + Send + Sync;
-
-  fn run(&self, parameters: Parameters) -> Self::Future;
-  fn deserialize_parameters(
-    &self,
-    raw_parameters: serde_json::Value,
-  ) -> Result<Parameters, serde_json::error::Error>;
+pub trait Handler<Args>: Send + Sync + Clone {
+  type Output;
+  type Future: Future<Output = Self::Output>;
+  fn call(&self, args: Args) -> Self::Future;
 }
 
 macro_rules! factory ({ $($param:ident)* } => {
     impl<Func, Fut, Out, $($param,)*> Handler<($($param,)*)> for Func
     where
-        Func: Fn($($param),*) -> Fut + Send + Sync + Clone,
-        Fut: Future<Output = Result<Out, String>> + Send + Sync,
-        ($($param,)*): DeserializeOwned,
-        Out: Serialize,
+    Func: Fn($($param,)*) -> Fut + Send + Sync + Clone,
+    Fut: Future<Output = Out>,
     {
         type Output = Out;
         type Future = Fut;
 
-        fn run(&self, ($($param,)*): ($($param,)*)) -> Self::Future {
-            (self)($($param,)*)
-        }
-
-        fn deserialize_parameters(&self, raw_parameters: serde_json::Value) -> Result<($($param,)*), serde_json::error::Error> {
-            serde_json::from_value(raw_parameters)
+        fn call(&self, ($($param,)*): ($($param,)*)) -> Self::Future {
+            self($($param,)*)
         }
     }
 });

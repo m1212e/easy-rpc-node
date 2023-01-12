@@ -18,11 +18,7 @@ impl ERPCTarget {
   #[napi(constructor)]
   pub fn new(options: TargetOptions, target_type: String) -> Self {
     ERPCTarget {
-      target: crate::erpc::target::ERPCTarget::new(
-        options.address,
-        options.port,
-        target_type,
-      ),
+      target: crate::erpc::target::ERPCTarget::new(options.address, options.port, target_type),
     }
   }
 
@@ -31,14 +27,18 @@ impl ERPCTarget {
     &self,
     env: Env,
     method_identifier: String,
-    parameters: JsUnknown,
+    parameters: Option<JsUnknown>,
   ) -> Result<JsObject, napi::Error> {
-    let params: Vec<serde_json::Value> = env.from_js_value(parameters)?;
+    let parameters: Option<Vec<serde_json::Value>> = match parameters {
+      Some(v) => Some(env.from_js_value(v)?),
+      None => None,
+    };
+
     let t = self.target.clone();
 
     env.execute_tokio_future(
       async move {
-        let res: serde_json::Value = match t.call(method_identifier, params).await {
+        let res: serde_json::Value = match t.call(method_identifier, parameters).await {
           Ok(v) => v,
           Err(err) => {
             return Err(napi::Error::from_reason(err));
