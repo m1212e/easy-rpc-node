@@ -3,13 +3,15 @@
 //TODO: remove unwraps
 //TODO: refactoring
 
+use std::convert::Infallible;
+
 use napi::{
   bindgen_prelude::{FromNapiValue, Promise},
   Env, JsFunction, JsUnknown, NapiRaw,
 };
 use tokio::sync::oneshot;
 
-use crate::erpc::server::Socket;
+use crate::erpc::Socket;
 
 #[napi(object)]
 pub struct ServerOptions {
@@ -91,7 +93,7 @@ impl ERPCServer {
             ctx.env.execute_tokio_future(
               async move {
                 let result = prm.await?;
-                match response_channel.send(serde_json::to_value(&result)?) {
+                match response_channel.send(serde_json::to_value(result)?) {
                   Ok(_) => {}
                   Err(err) => {
                     return Err(napi::Error::from_reason(format!(
@@ -156,22 +158,38 @@ impl ERPCServer {
       },
     )?;
 
-    self
-      .server
-      .register_socket_connection_callback(Box::new(move |socket| {
-        let r = tsf.call(
-          (*socket).to_owned(),
-          crate::threadsafe_function::ThreadsafeFunctionCallMode::Blocking,
-        );
+    let socket_notifier_channel = self.server.get_socket_notifier().clone();
+    env.execute_tokio_future(
+      async move {
+        loop {
+          let socket = match socket_notifier_channel.recv_async().await {
+            Ok(v) => v,
+            Err(err) => {
+              return Err(napi::Error::from_reason(format!(
+                "Error while recieving from socket notifier channel: {err}"
+              )))
+            }
+          };
 
-        match r {
-          napi::Status::Ok => {}
-          _ => {
-            eprintln!("Threadsafe function status not ok: {r}")
+          let r = tsf.call(
+            (socket).to_owned(),
+            crate::threadsafe_function::ThreadsafeFunctionCallMode::Blocking,
+          );
+
+          match r {
+            napi::Status::Ok => {}
+            _ => {
+              return Err(napi::Error::from_reason(format!(
+                "Threadsafe function status not ok: {r}"
+              )))
+            }
           }
-        };
-      }))
-      .map_err(|err| napi::Error::from_reason(format!("Could not register callback: {err}")))
+        }
+      },
+      |_, _: Infallible| Ok(()),
+    ).unwrap();
+
+    Ok(())
   }
 
   /**

@@ -1,11 +1,9 @@
 #![deny(clippy::all)]
 
 //TODO: remove unwraps
-//TODO: refactoring
-
+//TODO: maybe rework error handling? use custom error type to prevent .map_err calls
 
 mod erpc;
-mod web;
 mod threadsafe_function;
 mod server;
 mod target;

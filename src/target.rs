@@ -1,6 +1,8 @@
 use napi::{Env, JsObject, JsUnknown};
+use vec1::Vec1;
 
-use crate::erpc::server::Socket;
+use crate::erpc::target::TargetType;
+use crate::erpc::Socket;
 
 #[napi(object)]
 pub struct TargetOptions {
@@ -17,8 +19,18 @@ pub struct ERPCTarget {
 impl ERPCTarget {
   #[napi(constructor)]
   pub fn new(options: TargetOptions, target_type: String) -> Self {
+    let target_type = match target_type.as_str() {
+      "browser" => TargetType::Browser,
+      "http-server" => TargetType::HTTPServer,
+      _ => panic!("Unsupported target type {}", target_type),
+    };
+
     ERPCTarget {
-      target: crate::erpc::target::ERPCTarget::new(options.address, options.port, target_type),
+      target: crate::erpc::target::ERPCTarget::new(
+        options.address,
+        options.port,
+        target_type,
+      ),
     }
   }
 
@@ -29,7 +41,7 @@ impl ERPCTarget {
     method_identifier: String,
     parameters: Option<JsUnknown>,
   ) -> Result<JsObject, napi::Error> {
-    let parameters: Option<Vec<serde_json::Value>> = match parameters {
+    let parameters: Option<Vec1<serde_json::Value>> = match parameters {
       Some(v) => Some(env.from_js_value(v)?),
       None => None,
     };

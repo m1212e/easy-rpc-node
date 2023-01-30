@@ -15,8 +15,8 @@ test('test creation', (t) => {
     port: 0
   }, "http-server")
 
-  t.assert(server != undefined)
-  t.assert(target != undefined)
+  t.assert(server !== undefined)
+  t.assert(target !== undefined)
 })
 
 test('test handler calls', async (t) => {
@@ -27,8 +27,8 @@ test('test handler calls', async (t) => {
   }, "http-server", true, "Backend");
 
   server.registerERPCHandler((p1, p2) => {
-    t.assert(p1 == "p1")
-    t.assert(p2 == 17)
+    t.assert(p1 === "p1")
+    t.assert(p2 === 17)
 
     return "helllloooo"
   }, "some/handler/identifier")
@@ -48,10 +48,10 @@ test('test handler calls', async (t) => {
 
   setTimeout(async () => {
     let r = await target.call("some/handler/identifier", ["p1", 17])
-    t.assert(r == "helllloooo")
+    t.assert(r === "helllloooo")
 
     let r2 = await target.call("some/handler/identifier/two")
-    t.assert(r2 == undefined)
+    t.assert(r2 === undefined)
   }, 1000);
 
   await server.run();
