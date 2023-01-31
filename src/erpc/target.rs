@@ -6,7 +6,6 @@ use std::{
   sync::{Arc, Mutex},
 };
 use tokio::sync::oneshot;
-use vec1::Vec1;
 
 #[derive(Debug, Clone)]
 pub enum TargetType {
@@ -44,7 +43,7 @@ impl ERPCTarget {
   pub async fn call<P: Serialize, R: DeserializeOwned>(
     &self,
     identifier: String,
-    parameters: Option<Vec1<P>>,
+    parameters: Vec<P>,
   ) -> Result<R, String> {
     match self.target_type {
       TargetType::HTTPServer => {
@@ -53,12 +52,10 @@ impl ERPCTarget {
           self.address, self.port
         ));
 
-        if let Some(v) = parameters {
-          r = r.header("Content-Type", "application/json").body(
-            serde_json::to_vec(&v)
-              .map_err(|err| format!("Could not serialize parameters: {err}"))?,
-          );
-        }
+        r = r.header("Content-Type", "application/json").body(
+          serde_json::to_vec(&parameters)
+            .map_err(|err| format!("Could not serialize parameters: {err}"))?,
+        );
 
         let response = r
           .send()
@@ -102,17 +99,7 @@ impl ERPCTarget {
             id,
             request: super::protocol::Request {
               identifier,
-              parameters: {
-                let parameters: Result<Vec<_>, _> =
-                  parameters.into_iter().map(serde_json::to_value).collect();
-
-                let parameters =
-                  parameters.map_err(|err| format!("Could not serialize parameter: {err}"))?;
-
-                // Since v is an Vec1 and is only mapped and the re-converted to a Vec1 the expect should never fail
-                Vec1::try_from_vec(parameters)
-                  .expect("Parameters vector unexpectedly has no elements")
-              },
+              parameters,
             },
           }))
           .unwrap();

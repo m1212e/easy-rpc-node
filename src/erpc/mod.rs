@@ -2,6 +2,7 @@ pub mod handler;
 pub mod protocol;
 pub mod server;
 pub mod target;
+mod tests;
 
 #[derive(Clone, Debug)]
 pub struct Socket {
