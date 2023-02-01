@@ -2,6 +2,9 @@ import test from 'ava'
 import {ERPCServer, ERPCTarget} from '../index.js'
 
 //TODO test sockets
+//TODO test more data types and constellations
+
+
 
 test('test creation', (t) => {
 
@@ -26,9 +29,12 @@ test('test handler calls', async (t) => {
     allowedCorsOrigins: ["*"]
   }, "http-server", true, "Backend");
 
-  server.registerERPCHandler((p1, p2) => {
+  server.registerERPCHandler((p1, p2, p3, p4, p5) => {
     t.assert(p1 === "p1")
-    t.assert(p2 === 17)
+    t.assert(p2 == 17) // big int
+    t.assert(p3 === -17)
+    t.assert(p4 === -17.6)
+    t.assert(p5 === true)
 
     return "helllloooo"
   }, "some/handler/identifier")
@@ -47,11 +53,11 @@ test('test handler calls', async (t) => {
   }, "http-server")
 
   setTimeout(async () => {
-    let r = await target.call("some/handler/identifier", ["p1", 17])
+    let r = await target.call("some/handler/identifier", ["p1", 17, -17, -17.6, true])
     t.assert(r === "helllloooo")
 
     let r2 = await target.call("some/handler/identifier/two")
-    t.assert(r2 === undefined)
+    t.assert(!r2)
   }, 1000);
 
   await server.run();

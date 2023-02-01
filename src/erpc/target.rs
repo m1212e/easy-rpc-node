@@ -3,6 +3,7 @@ use nanoid::nanoid;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
   collections::HashMap,
+  fmt::Debug,
   sync::{Arc, Mutex},
 };
 use tokio::sync::oneshot;
@@ -13,7 +14,7 @@ pub enum TargetType {
   Browser,
 }
 
-//TODO find a better way to store open requests
+//TODO find a better/faster way to store open requests
 #[derive(Debug, Clone)]
 pub struct ERPCTarget {
   address: String,
@@ -40,22 +41,31 @@ impl ERPCTarget {
     }
   }
 
-  pub async fn call<P: Serialize, R: DeserializeOwned>(
+  pub async fn call<P: Serialize, R: DeserializeOwned + Debug>(
     &self,
     identifier: String,
     parameters: Vec<P>,
   ) -> Result<R, String> {
+    // making sure that the protocol::Request is used to break this if the protocol should ever change
+    let request = crate::erpc::protocol::Request {
+      identifier,
+      parameters: parameters
+        .iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| format!("Could not parse parameters: {err}"))?,
+    };
+
     match self.target_type {
       TargetType::HTTPServer => {
-        let mut r = self.reqwest_client.post(format!(
-          "{}:{}/handlers/{identifier}",
-          self.address, self.port
-        ));
-
-        r = r.header("Content-Type", "application/json").body(
-          serde_json::to_vec(&parameters)
-            .map_err(|err| format!("Could not serialize parameters: {err}"))?,
-        );
+        let r = self
+          .reqwest_client
+          .post(format!(
+            "{}:{}/handlers/{}",
+            self.address, self.port, request.identifier
+          ))
+          .header("Content-Type", "application/json")
+          .body(serde_json::to_vec(&request.parameters).expect("Vec of json::Value should be ok"));
 
         let response = r
           .send()
@@ -97,10 +107,7 @@ impl ERPCTarget {
           .sender
           .send(SocketMessage::Request(super::protocol::socket::Request {
             id,
-            request: super::protocol::Request {
-              identifier,
-              parameters,
-            },
+            request,
           }))
           .unwrap();
 

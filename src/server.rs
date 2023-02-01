@@ -3,7 +3,7 @@
 //TODO: remove unwraps
 //TODO: refactoring
 
-use std::convert::Infallible;
+use std::{any::Any, convert::Infallible};
 
 use napi::{
   bindgen_prelude::{FromNapiValue, Promise},
@@ -43,7 +43,7 @@ impl ERPCServer {
   }
 
   #[napi(skip_typescript, js_name = "registerERPCHandler")]
-  pub fn register_erpc_callback_function(
+  pub fn register_erpc_handler(
     &mut self,
     env: Env,
     func: JsFunction,
@@ -57,6 +57,7 @@ impl ERPCServer {
         Vec<serde_json::Value>,
         oneshot::Sender<serde_json::Value>,
       )>| {
+
         let args = ctx
           .value
           .0
@@ -64,7 +65,7 @@ impl ERPCServer {
           .map(|v| ctx.env.to_js_value(v))
           .collect::<Result<Vec<JsUnknown>, napi::Error>>()?;
 
-        let response = ctx.callback.call(None, &args)?;
+        let response = ctx.callback.call(None, args.as_slice())?;
         let response_channel = ctx.value.1;
 
         if !response.is_promise()? {
@@ -113,15 +114,10 @@ impl ERPCServer {
     )?;
 
     self.server.register_raw_handler(
-      Box::new(move |input: serde_json::Value| {
-        let parameters: Vec<serde_json::Value> = match serde_json::from_value(input) {
-          Ok(v) => v,
-          Err(err) => return Box::pin(async move { Err(format!("Could not parse input: {err}")) }),
-        };
-
+      Box::new(move |input| {
         let (sender, reciever) = oneshot::channel::<serde_json::Value>();
         let r = tsf.call(
-          (parameters, sender),
+          (input, sender),
           crate::threadsafe_function::ThreadsafeFunctionCallMode::Blocking,
         );
 
@@ -159,35 +155,37 @@ impl ERPCServer {
     )?;
 
     let socket_notifier_channel = self.server.get_socket_notifier().clone();
-    env.execute_tokio_future(
-      async move {
-        loop {
-          let socket = match socket_notifier_channel.recv_async().await {
-            Ok(v) => v,
-            Err(err) => {
-              return Err(napi::Error::from_reason(format!(
-                "Error while recieving from socket notifier channel: {err}"
-              )))
-            }
-          };
+    env
+      .execute_tokio_future(
+        async move {
+          loop {
+            let socket = match socket_notifier_channel.recv_async().await {
+              Ok(v) => v,
+              Err(err) => {
+                return Err(napi::Error::from_reason(format!(
+                  "Error while recieving from socket notifier channel: {err}"
+                )))
+              }
+            };
 
-          let r = tsf.call(
-            (socket).to_owned(),
-            crate::threadsafe_function::ThreadsafeFunctionCallMode::Blocking,
-          );
+            let r = tsf.call(
+              (socket).to_owned(),
+              crate::threadsafe_function::ThreadsafeFunctionCallMode::Blocking,
+            );
 
-          match r {
-            napi::Status::Ok => {}
-            _ => {
-              return Err(napi::Error::from_reason(format!(
-                "Threadsafe function status not ok: {r}"
-              )))
+            match r {
+              napi::Status::Ok => {}
+              _ => {
+                return Err(napi::Error::from_reason(format!(
+                  "Threadsafe function status not ok: {r}"
+                )))
+              }
             }
           }
-        }
-      },
-      |_, _: Infallible| Ok(()),
-    ).unwrap();
+        },
+        |_, _: Infallible| Ok(()),
+      )
+      .unwrap();
 
     Ok(())
   }

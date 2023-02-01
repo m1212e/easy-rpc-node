@@ -11,10 +11,11 @@ use tokio::sync::oneshot;
 use warp::{path::Peek, Filter, Reply};
 
 //TODO: include in docs that credentials are sent by default
+//TODO: ensure conversion to a protocol struct on each recieved call
 
 type Handler = Box<
   dyn Fn(
-      serde_json::Value,
+      Vec<serde_json::Value>,
     ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, String>> + Send + Sync>>
     + Send
     + Sync,
@@ -83,6 +84,10 @@ impl ERPCServer {
     let v: Handler = Box::new(move |v| {
       let handler = handler.clone();
       Box::pin(async move {
+        //TODO this could be more elegant?
+        let v =
+          serde_json::to_value(v).map_err(|err| format!("Could not convert to value: {err}"))?;
+
         let parameters = match serde_json::from_value::<P>(v) {
           Ok(v) => v,
           Err(err) => {
@@ -202,10 +207,11 @@ impl ERPCServer {
     &self.socket_channel.1
   }
 
+  //TODO remove return type of Box<dyn Reply> and replace with static types
   async fn http_handler(
     request_handlers: Arc<tokio::sync::RwLock<HashMap<String, Handler>>>,
     path: Peek,
-    parameters: serde_json::Value,
+    parameters: Vec<serde_json::Value>,
   ) -> Box<dyn Reply> {
     let lock = request_handlers.read().await;
     let handler = match lock.get(path.as_str()) {
@@ -303,7 +309,8 @@ impl ERPCServer {
             reciever: incoming_reciever.clone(),
             role: role.clone(),
           })
-          .await.unwrap();
+          .await
+          .unwrap();
       }))
     } else {
       Box::new(warp::reply::with_status(

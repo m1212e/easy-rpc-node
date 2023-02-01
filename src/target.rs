@@ -1,5 +1,4 @@
 use napi::{Env, JsObject, JsUnknown};
-use vec1::Vec1;
 
 use crate::erpc::target::TargetType;
 use crate::erpc::Socket;
@@ -26,11 +25,7 @@ impl ERPCTarget {
     };
 
     ERPCTarget {
-      target: crate::erpc::target::ERPCTarget::new(
-        options.address,
-        options.port,
-        target_type,
-      ),
+      target: crate::erpc::target::ERPCTarget::new(options.address, options.port, target_type),
     }
   }
 
@@ -39,18 +34,16 @@ impl ERPCTarget {
     &self,
     env: Env,
     method_identifier: String,
-    parameters: Option<JsUnknown>,
+    parameters: Option<Vec<serde_json::Value>>,
   ) -> Result<JsObject, napi::Error> {
-    let parameters: Option<Vec1<serde_json::Value>> = match parameters {
-      Some(v) => Some(env.from_js_value(v)?),
-      None => None,
-    };
-
     let t = self.target.clone();
 
     env.execute_tokio_future(
       async move {
-        let res: serde_json::Value = match t.call(method_identifier, parameters).await {
+        let res: serde_json::Value = match t
+          .call(method_identifier, parameters.unwrap_or_default())
+          .await
+        {
           Ok(v) => v,
           Err(err) => {
             return Err(napi::Error::from_reason(err));
