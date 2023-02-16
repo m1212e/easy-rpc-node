@@ -4,8 +4,6 @@ import {ERPCServer, ERPCTarget} from '../index.js'
 //TODO test sockets
 //TODO test more data types and constellations
 
-
-
 test('test creation', (t) => {
 
   const server = new ERPCServer({
@@ -23,18 +21,18 @@ test('test creation', (t) => {
 })
 
 test('test handler calls', async (t) => {
-
   const server = new ERPCServer({
     port: 9988,
     allowedCorsOrigins: ["*"]
   }, "http-server", true, "Backend");
 
-  server.registerERPCHandler((p1, p2, p3, p4, p5) => {
-    t.assert(p1 === "p1")
-    t.assert(p2 == 17) // big int
-    t.assert(p3 === -17)
-    t.assert(p4 === -17.6)
-    t.assert(p5 === true)
+  server.registerERPCHandler((p1, p2, p3, p4, p5, p6) => {
+    t.deepEqual(p1, "p1")
+    t.deepEqual(p2, 17)
+    t.deepEqual(p3, -17)
+    t.deepEqual(p4, -17.6)
+    t.deepEqual(p5, true)
+    t.deepEqual(p6, {a: 17})
 
     return "helllloooo"
   }, "some/handler/identifier")
@@ -53,7 +51,7 @@ test('test handler calls', async (t) => {
   }, "http-server")
 
   setTimeout(async () => {
-    let r = await target.call("some/handler/identifier", ["p1", 17, -17, -17.6, true])
+    let r = await target.call("some/handler/identifier", ["p1", 17, -17, -17.6, true, {a: 17}])
     t.assert(r === "helllloooo")
 
     let r2 = await target.call("some/handler/identifier/two")
